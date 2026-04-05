@@ -1,0 +1,159 @@
+package dev.thenexusgates.mobmapmarkers;
+
+import com.hypixel.hytale.math.vector.Transform;
+import com.hypixel.hytale.math.vector.Vector3d;
+import com.hypixel.hytale.math.vector.Vector3f;
+import com.hypixel.hytale.protocol.packets.worldmap.MapMarker;
+import com.hypixel.hytale.server.core.command.system.CommandSender;
+import com.hypixel.hytale.server.core.entity.entities.Player;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
+import com.hypixel.hytale.server.core.universe.world.World;
+import com.hypixel.hytale.server.core.universe.world.worldmap.WorldMapManager;
+import com.hypixel.hytale.server.core.universe.world.worldmap.markers.MarkersCollector;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.UUID;
+import java.util.logging.Logger;
+
+final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
+
+    private static final Logger LOGGER = Logger.getLogger(MobMarkerProvider.class.getName());
+    private static final String MARKER_PREFIX = "MobMapMarker-";
+
+    private final MobMarkerManager manager;
+
+    MobMarkerProvider(MobMarkerManager manager) {
+        this.manager = manager;
+    }
+
+    @Override
+    public void update(World world, Player viewer, MarkersCollector collector) {
+        if (world == null || viewer == null || collector == null) {
+            return;
+        }
+
+        MobMapMarkersConfig config = MobMapMarkersPlugin.getConfig();
+        if (config == null || !config.enableMobMarkers) {
+            return;
+        }
+
+        if (!config.showMobMarkersOnCompass && !MobMapMarkerSupport.isWorldMapVisible(viewer)) {
+            return;
+        }
+
+        String worldName = world.getName();
+        UUID viewerUuid = ((CommandSender) viewer).getUuid();
+        Vector3d viewerPosition = manager.getPlayerPosition(worldName, viewerUuid);
+        if (viewerPosition == null) {
+            viewerPosition = findViewerPosition(world.getPlayerRefs(), viewerUuid);
+        }
+
+        double maxDistanceSquared = config.mobMarkerRadius <= 0
+                ? Double.POSITIVE_INFINITY
+                : (double) config.mobMarkerRadius * config.mobMarkerRadius;
+
+        List<MarkerCandidate> candidates = new ArrayList<>();
+        for (MobMarkerManager.MobMarkerSnapshot snapshot : manager.getMobData(worldName)) {
+            if (snapshot == null || snapshot.position() == null) {
+                continue;
+            }
+
+            double distanceSquared = viewerPosition != null
+                    ? squaredDistance(viewerPosition, snapshot.position())
+                    : 0D;
+            if (distanceSquared > maxDistanceSquared) {
+                continue;
+            }
+
+            candidates.add(new MarkerCandidate(snapshot, distanceSquared));
+        }
+
+        candidates.sort(Comparator.comparingDouble(MarkerCandidate::distanceSquared));
+        int limit = config.maxVisibleMobMarkers > 0
+                ? Math.min(config.maxVisibleMobMarkers, candidates.size())
+                : candidates.size();
+
+        for (int index = 0; index < limit; index++) {
+            MarkerCandidate candidate = candidates.get(index);
+            MobMarkerManager.MobMarkerSnapshot snapshot = candidate.snapshot();
+            try {
+                String markerImage = MobMapAssetPack.ensureMobIcon(
+                        snapshot.roleName(),
+                        snapshot.displayName(),
+                        config.mobMarkerSize,
+                    config.mobIconContentScalePercent,
+                        snapshot.facingRight(),
+                        config.renderUnknownMobFallbacks);
+                if (markerImage == null) {
+                    continue;
+                }
+
+                String label = buildLabel(
+                        snapshot.displayName(),
+                        config.showMobNames,
+                        config.showDistance,
+                        candidate.distanceSquared(),
+                        viewerPosition != null);
+                Transform transform = new Transform(new Vector3d(snapshot.position()), Vector3f.ZERO);
+                MapMarker marker = MobMapMarkerSupport.createPlainMarker(
+                        MARKER_PREFIX + snapshot.id(),
+                        label,
+                        markerImage,
+                        transform);
+                collector.add(marker);
+            } catch (Exception e) {
+                LOGGER.warning("[MobMapMarkers] Mob marker build failed: " + e.getMessage());
+            }
+        }
+    }
+
+    private static String buildLabel(String displayName, boolean showMobNames, boolean showDistance,
+                                     double distanceSquared, boolean includeDistance) {
+        if (!showMobNames && !showDistance) {
+            return null;
+        }
+
+        String safeName = displayName != null && !displayName.isBlank() ? displayName : "Mob";
+        if (!includeDistance || !showDistance) {
+            return showMobNames ? safeName : null;
+        }
+
+        int distance = (int) Math.sqrt(distanceSquared);
+        if (showMobNames) {
+            return safeName + " (" + distance + "m)";
+        }
+        return distance + "m";
+    }
+
+    private static Vector3d findViewerPosition(Collection<PlayerRef> playerRefs, UUID viewerUuid) {
+        if (playerRefs == null || viewerUuid == null) {
+            return null;
+        }
+
+        for (PlayerRef ref : playerRefs) {
+            if (ref == null || !viewerUuid.equals(ref.getUuid())) {
+                continue;
+            }
+
+            Vector3d position = LivePlayerTracker.resolvePosition(ref);
+            if (position != null) {
+                return position;
+            }
+        }
+
+        return null;
+    }
+
+    private static double squaredDistance(Vector3d a, Vector3d b) {
+        double dx = a.x - b.x;
+        double dy = a.y - b.y;
+        double dz = a.z - b.z;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    private record MarkerCandidate(MobMarkerManager.MobMarkerSnapshot snapshot, double distanceSquared) {
+    }
+}

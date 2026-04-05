@@ -1,0 +1,16 @@
+{
+  "Group": "thenexusgates",
+  "Name": "MobMapMarkers",
+  "Version": "1.0.1",
+  "Description": "Shows configurable mob markers on the Hytale world map using cropped official portraits where possible.",
+  "Authors": [
+    {
+      "Name": "maksimovc"
+    }
+  ],
+  "Website": "https://github.com/maksimovc/MobMapMarkers",
+  "ServerVersion": "2026.03.26-89796e57b",
+  "DisabledByDefault": false,
+  "IncludesAssetPack": false,
+  "Main": "dev.thenexusgates.mobmapmarkers.MobMapMarkersPlugin"
+}
