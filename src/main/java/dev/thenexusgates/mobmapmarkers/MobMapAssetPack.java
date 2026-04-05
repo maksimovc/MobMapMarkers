@@ -1,106 +1,126 @@
 package dev.thenexusgates.mobmapmarkers;
 
-import com.hypixel.hytale.common.plugin.AuthorInfo;
-import com.hypixel.hytale.common.plugin.PluginManifest;
-import com.hypixel.hytale.common.semver.Semver;
+import com.hypixel.hytale.common.util.ArrayUtil;
+import com.hypixel.hytale.protocol.Packet;
+import com.hypixel.hytale.protocol.packets.setup.AssetFinalize;
+import com.hypixel.hytale.protocol.packets.setup.AssetInitialize;
+import com.hypixel.hytale.protocol.packets.setup.AssetPart;
 import com.hypixel.hytale.protocol.packets.setup.RequestCommonAssetsRebuild;
-import com.hypixel.hytale.server.core.asset.AssetModule;
-import com.hypixel.hytale.server.core.asset.common.CommonAssetModule;
-import com.hypixel.hytale.server.core.asset.common.asset.FileCommonAsset;
-import com.hypixel.hytale.server.core.universe.Universe;
+import com.hypixel.hytale.server.core.asset.common.CommonAsset;
+import com.hypixel.hytale.server.core.io.PacketHandler;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
+import java.util.stream.Stream;
 
 final class MobMapAssetPack {
 
     private static final Logger LOGGER = Logger.getLogger(MobMapAssetPack.class.getName());
-    private static final String PACK_ID = "thenexusgates:MobMapMarkersAssets";
-    private static final String PACK_GROUP = "thenexusgates";
-    private static final String PACK_NAME = "MobMapMarkersAssets";
-    private static final String PACK_VERSION = "1.0.1";
-    private static final String TARGET_SERVER_VERSION = "2026.03.26-89796e57b";
     private static final String MARKER_ASSET_PREFIX = "UI/WorldMap/MapMarkers/";
-    private static final String UNKNOWN_LEFT_IMAGE = "mmm-unknown-left.png";
-    private static final String UNKNOWN_RIGHT_IMAGE = "mmm-unknown-right.png";
-    private static final long ASSET_REBUILD_DEBOUNCE_MS = 300L;
+    private static final String UNKNOWN_IMAGE_KEY = "unknown";
+    private static final int ASSET_PACKET_SIZE = 2_621_440;
+    private static final int MIN_ICON_SIZE = 16;
+    private static final int MIN_CONTENT_SCALE_PERCENT = 50;
+    private static final int MAX_CONTENT_SCALE_PERCENT = 100;
+    private static final long REBUILD_DEBOUNCE_MS = 40L;
 
-    private static final String MANIFEST_JSON = """
-            {
-              "Group": "thenexusgates",
-              "Name": "MobMapMarkersAssets",
-              "Version": "1.0.1",
-              "Description": "Generated mob marker icons for the Hytale world map",
-              "Authors": [
-                {
-                  "Name": "maksimovc"
-                }
-              ],
-              "ServerVersion": "2026.03.26-89796e57b",
-              "Dependencies": {},
-              "OptionalDependencies": {},
-              "DisabledByDefault": false,
-              "IncludesAssetPack": true
-            }
-            """;
-
-    private static final ConcurrentHashMap<String, FileCommonAsset> PUSHED_ASSETS = new ConcurrentHashMap<>();
-    private static final java.util.Set<String> GENERATED_MOB_ICONS = ConcurrentHashMap.newKeySet();
-    private static final ScheduledExecutorService ASSET_REBUILD_SCHEDULER = Executors.newSingleThreadScheduledExecutor();
-    private static final AtomicBoolean REBUILD_QUEUED = new AtomicBoolean(false);
+    private static final ConcurrentHashMap<String, MobMarkerAsset> GENERATED_ASSETS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, Set<String>> DELIVERED_BY_VIEWER = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, ScheduledFuture<?>> PENDING_REBUILDS = new ConcurrentHashMap<>();
+    private static volatile ScheduledExecutorService rebuildScheduler;
 
     private static volatile boolean initialized;
-    private static volatile boolean registered;
-    private static Path packRoot;
+    private static Path dataRoot;
 
     private MobMapAssetPack() {
     }
 
     static void init() {
         ensureInitialized();
-        registerPackIfNeeded();
     }
 
-    static Path getPackRoot() {
+    static Path getDataRoot() {
         ensureInitialized();
-        return packRoot;
+        return dataRoot;
+    }
+
+    static void clearViewer(UUID viewerUuid) {
+        if (viewerUuid != null) {
+            DELIVERED_BY_VIEWER.remove(viewerUuid);
+            ScheduledFuture<?> future = PENDING_REBUILDS.remove(viewerUuid);
+            if (future != null && !future.isCancelled()) {
+                future.cancel(false);
+            }
+        }
+    }
+
+    static void shutdown() {
+        DELIVERED_BY_VIEWER.clear();
+        GENERATED_ASSETS.clear();
+        PENDING_REBUILDS.values().forEach(future -> {
+            if (future != null && !future.isCancelled()) {
+                future.cancel(false);
+            }
+        });
+        PENDING_REBUILDS.clear();
+
+        ScheduledExecutorService scheduler = rebuildScheduler;
+        rebuildScheduler = null;
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+        }
+
+        initialized = false;
+        dataRoot = null;
     }
 
     static String ensureMobIcon(String roleName, String displayName, int size, int contentScalePercent,
                                 boolean facingRight, boolean renderFallback) {
         ensureInitialized();
-        registerPackIfNeeded();
+
+        int normalizedSize = normalizeIconSize(size);
+        int normalizedScale = normalizeContentScalePercent(contentScalePercent);
 
         String portraitName = HytaleNpcPortraitResolver.resolvePortraitName(roleName);
         if (portraitName != null) {
-            String imagePath = buildImagePath("mmm-official", portraitName, facingRight);
-            if (!GENERATED_MOB_ICONS.add(imagePath)) {
-                return imagePath;
-            }
-
-            byte[] portraitPng = HytaleNpcPortraitResolver.loadPortraitPngByPortraitName(portraitName);
-            if (portraitPng != null && portraitPng.length > 0) {
-                writeMarkerImage(imagePath, MobMapImageProcessor.createMobPortraitMarkerPng(
+            String imagePath = buildImagePath("mmm-official", portraitName, normalizedSize, normalizedScale, facingRight);
+            String resolvedImagePath = ensureGeneratedImage(imagePath, () -> {
+                byte[] portraitPng = HytaleNpcPortraitResolver.loadPortraitPngByPortraitName(portraitName);
+                if (portraitPng == null || portraitPng.length == 0) {
+                    return null;
+                }
+                return MobMapImageProcessor.createMobPortraitMarkerPng(
                         portraitPng,
-                        size,
+                        normalizedSize,
                         facingRight,
-                        contentScalePercent));
-                return imagePath;
+                        normalizedScale);
+            });
+            if (resolvedImagePath != null) {
+                return resolvedImagePath;
             }
-
-            GENERATED_MOB_ICONS.remove(imagePath);
         }
 
         if (!renderFallback) {
@@ -108,125 +128,167 @@ final class MobMapAssetPack {
         }
 
         if (roleName == null || roleName.isBlank()) {
-            refreshFallbackIcons(size, contentScalePercent);
-            return facingRight ? UNKNOWN_RIGHT_IMAGE : UNKNOWN_LEFT_IMAGE;
+            ensureFallbackIcons(normalizedSize, normalizedScale);
+            return buildFallbackImagePath(normalizedSize, normalizedScale, facingRight);
         }
 
-        String imagePath = buildImagePath("mmm-generated", roleName, facingRight);
-        if (!GENERATED_MOB_ICONS.add(imagePath)) {
-            return imagePath;
-        }
-
-        writeMarkerImage(imagePath, MobMapImageProcessor.createMobMarkerPng(roleName, displayName, size));
-        return imagePath;
+        String imagePath = buildImagePath("mmm-generated", roleName, normalizedSize, normalizedScale, facingRight);
+        return ensureGeneratedImage(imagePath,
+                () -> MobMapImageProcessor.createMobMarkerPng(roleName, displayName, normalizedSize));
     }
 
     static void prewarmMobIcons(int size, int contentScalePercent) {
         ensureInitialized();
-        registerPackIfNeeded();
 
-        int iconSize = Math.max(16, size);
-        refreshFallbackIcons(iconSize, contentScalePercent);
+        int iconSize = normalizeIconSize(size);
+        int normalizedScale = normalizeContentScalePercent(contentScalePercent);
+        ensureFallbackIcons(iconSize, normalizedScale);
         for (String portraitName : HytaleNpcPortraitResolver.getAvailablePortraitNames()) {
-            prewarmPortraitIcon(portraitName, iconSize, contentScalePercent, true);
-            prewarmPortraitIcon(portraitName, iconSize, contentScalePercent, false);
+            prewarmPortraitIcon(portraitName, iconSize, normalizedScale, true);
+            prewarmPortraitIcon(portraitName, iconSize, normalizedScale, false);
         }
+    }
+
+    static String toUiAssetPath(String imagePath) {
+        if (imagePath == null || imagePath.isBlank()) {
+            return null;
+        }
+        return MARKER_ASSET_PREFIX + imagePath;
+    }
+
+    static void deliverAssetToViewer(PlayerRef viewer, String imagePath) {
+        if (imagePath == null || imagePath.isBlank()) {
+            return;
+        }
+        deliverAssetsToViewer(viewer, List.of(imagePath));
+    }
+
+    static void deliverAssetsToViewer(PlayerRef viewer, Collection<String> imagePaths) {
+        if (viewer == null || imagePaths == null || imagePaths.isEmpty()) {
+            return;
+        }
+
+        UUID viewerUuid = viewer.getUuid();
+        PacketHandler packetHandler = viewer.getPacketHandler();
+        if (viewerUuid == null || packetHandler == null) {
+            return;
+        }
+
+        Set<String> deliveredAssets = DELIVERED_BY_VIEWER.computeIfAbsent(viewerUuid,
+                ignored -> ConcurrentHashMap.newKeySet());
+        LinkedHashMap<String, MobMarkerAsset> pendingAssets = new LinkedHashMap<>();
+        for (String imagePath : imagePaths) {
+            String assetPath = toUiAssetPath(imagePath);
+            if (assetPath == null || assetPath.isBlank() || deliveredAssets.contains(assetPath)) {
+                continue;
+            }
+
+            MobMarkerAsset asset = GENERATED_ASSETS.get(assetPath);
+            if (asset != null) {
+                pendingAssets.putIfAbsent(assetPath, asset);
+            }
+        }
+
+        if (pendingAssets.isEmpty()) {
+            return;
+        }
+
+        for (MobMarkerAsset asset : pendingAssets.values()) {
+            MobMarkerAsset.sendToPlayer(packetHandler, asset);
+        }
+        deliveredAssets.addAll(pendingAssets.keySet());
+        scheduleRebuild(viewerUuid, packetHandler);
     }
 
     static void refreshFallbackIcons(int size, int contentScalePercent) {
-        int iconSize = Math.max(16, size);
-        int normalizedScalePercent = Math.max(50, Math.min(100, contentScalePercent));
-        writeStaticMarkerAsset(
-                UNKNOWN_LEFT_IMAGE,
-                MobMapImageProcessor.createFallbackMarkerPng(iconSize, normalizedScalePercent));
-        writeStaticMarkerAsset(
-                UNKNOWN_RIGHT_IMAGE,
-                MobMapImageProcessor.createFallbackMarkerPng(iconSize, normalizedScalePercent));
+        ensureInitialized();
+        ensureFallbackIcons(normalizeIconSize(size), normalizeContentScalePercent(contentScalePercent));
+    }
+
+    private static void ensureFallbackIcons(int size, int contentScalePercent) {
+        ensureGeneratedImage(
+                buildFallbackImagePath(size, contentScalePercent, false),
+                () -> MobMapImageProcessor.createFallbackMarkerPng(size, contentScalePercent));
+        ensureGeneratedImage(
+                buildFallbackImagePath(size, contentScalePercent, true),
+                () -> MobMapImageProcessor.createFallbackMarkerPng(size, contentScalePercent));
+    }
+
+    private static String buildFallbackImagePath(int size, int contentScalePercent, boolean facingRight) {
+        return buildImagePath("mmm-fallback", UNKNOWN_IMAGE_KEY, size, contentScalePercent, facingRight);
     }
 
     private static void prewarmPortraitIcon(String portraitName, int size, int contentScalePercent, boolean facingRight) {
-        String imagePath = buildImagePath("mmm-official", portraitName, facingRight);
-        if (!GENERATED_MOB_ICONS.add(imagePath)) {
-            return;
-        }
-
-        byte[] pngBytes = HytaleNpcPortraitResolver.loadPortraitPngByPortraitName(portraitName);
-        if (pngBytes == null || pngBytes.length == 0) {
-            GENERATED_MOB_ICONS.remove(imagePath);
-            return;
-        }
-
-        writeMarkerImage(imagePath, MobMapImageProcessor.createMobPortraitMarkerPng(
-                pngBytes,
-                size,
-                facingRight,
-                contentScalePercent));
+        String imagePath = buildImagePath("mmm-official", portraitName, size, contentScalePercent, facingRight);
+        ensureGeneratedImage(imagePath, () -> {
+            byte[] pngBytes = HytaleNpcPortraitResolver.loadPortraitPngByPortraitName(portraitName);
+            if (pngBytes == null || pngBytes.length == 0) {
+                return null;
+            }
+            return MobMapImageProcessor.createMobPortraitMarkerPng(
+                    pngBytes,
+                    size,
+                    facingRight,
+                    contentScalePercent);
+        });
     }
 
-    private static String buildImagePath(String prefix, String key, boolean facingRight) {
+    private static String buildImagePath(String prefix, String key, int size, int contentScalePercent,
+                                         boolean facingRight) {
         String normalized = sanitizeKey(key);
-        return prefix + "-" + normalized + (facingRight ? "-right" : "-left") + ".png";
+        return prefix
+                + "-"
+                + normalized
+                + "-s"
+                + size
+                + "-p"
+                + contentScalePercent
+                + (facingRight ? "-right" : "-left")
+                + ".png";
+    }
+
+    private static int normalizeIconSize(int size) {
+        return Math.max(MIN_ICON_SIZE, size);
+    }
+
+    private static int normalizeContentScalePercent(int contentScalePercent) {
+        return Math.max(MIN_CONTENT_SCALE_PERCENT, Math.min(MAX_CONTENT_SCALE_PERCENT, contentScalePercent));
     }
 
     private static String sanitizeKey(String key) {
-        String normalized = key == null ? "unknown" : key.toLowerCase(Locale.ROOT);
+        String normalized = key == null ? UNKNOWN_IMAGE_KEY : key.toLowerCase(Locale.ROOT);
         normalized = normalized.replaceAll("[^a-z0-9]+", "-");
         normalized = normalized.replaceAll("(^-+)|(-+$)", "");
-        return normalized.isBlank() ? "unknown" : normalized;
+        return normalized.isBlank() ? UNKNOWN_IMAGE_KEY : normalized;
     }
 
-    private static void writeMarkerImage(String imagePath, byte[] pngBytes) {
-        if (imagePath == null || imagePath.isBlank() || pngBytes == null || pngBytes.length == 0) {
-            return;
+    private static String ensureGeneratedImage(String imagePath, Supplier<byte[]> pngFactory) {
+        if (imagePath == null || imagePath.isBlank()) {
+            return null;
         }
 
-        try {
-            Path output = packRoot.resolve("Common/UI/WorldMap/MapMarkers").resolve(imagePath);
-            Files.createDirectories(output.getParent());
-            Files.write(output, pngBytes);
-            pushAssetToClients(MARKER_ASSET_PREFIX + imagePath, pngBytes, output);
-        } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to write marker asset " + imagePath + ": " + e.getMessage());
+        String assetPath = toUiAssetPath(imagePath);
+        if (assetPath == null || assetPath.isBlank()) {
+            return null;
         }
-    }
 
-    private static void pushAssetToClients(String assetName, byte[] pngBytes, Path filePath) {
-        try {
-            CommonAssetModule commonAssetModule = CommonAssetModule.get();
-            if (commonAssetModule == null) {
-                LOGGER.warning("[MobMapMarkers] CommonAssetModule not available, cannot push asset");
-                return;
+        MobMarkerAsset asset = GENERATED_ASSETS.computeIfAbsent(assetPath, ignored -> {
+            byte[] pngBytes = pngFactory.get();
+            if (pngBytes == null || pngBytes.length == 0) {
+                return null;
             }
-
-            FileCommonAsset asset = new FileCommonAsset(filePath, assetName, pngBytes);
-            commonAssetModule.addCommonAsset(assetName, asset, true);
-            PUSHED_ASSETS.put(assetName, asset);
-            requestAssetRebuild();
-        } catch (Exception e) {
-            LOGGER.warning("[MobMapMarkers] Failed to push marker asset to clients: " + e.getMessage());
-        }
+            return new MobMarkerAsset(assetPath, Arrays.copyOf(pngBytes, pngBytes.length));
+        });
+        return asset != null ? imagePath : null;
     }
 
-    private static void requestAssetRebuild() {
-        Universe universe = Universe.get();
-        if (universe == null || universe.getPlayerCount() <= 0) {
-            return;
+    private static String computeAssetHash(byte[] bytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
         }
-
-        if (!REBUILD_QUEUED.compareAndSet(false, true)) {
-            return;
-        }
-
-        ASSET_REBUILD_SCHEDULER.schedule(() -> {
-            try {
-                Universe activeUniverse = Universe.get();
-                if (activeUniverse != null && activeUniverse.getPlayerCount() > 0) {
-                    activeUniverse.broadcastPacketNoCache(new RequestCommonAssetsRebuild());
-                }
-            } finally {
-                REBUILD_QUEUED.set(false);
-            }
-        }, ASSET_REBUILD_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
     }
 
     private static void ensureInitialized() {
@@ -240,6 +302,7 @@ final class MobMapAssetPack {
             }
 
             try {
+                ensureRebuildScheduler();
                 Path pluginLocation = Paths.get(MobMapMarkersPlugin.class
                         .getProtectionDomain()
                         .getCodeSource()
@@ -249,86 +312,101 @@ final class MobMapAssetPack {
                         ? pluginLocation
                         : pluginLocation.getParent();
 
-                packRoot = modsDirectory.resolve("MobMapMarkersAssets");
-                Files.createDirectories(packRoot);
-                Files.writeString(packRoot.resolve("manifest.json"), MANIFEST_JSON, StandardCharsets.UTF_8);
-                ensureStaticAssets();
-                ensurePackEnabled(modsDirectory.getParent().resolve("config.json"));
-                registerPackIfNeeded();
+                dataRoot = modsDirectory.resolve("MobMapMarkersData");
+                Files.createDirectories(dataRoot);
+                cleanupLegacyPack(modsDirectory.resolve("MobMapMarkersAssets"));
                 initialized = true;
             } catch (IOException | URISyntaxException e) {
-                throw new IllegalStateException("Failed to initialize mob map asset pack", e);
+                throw new IllegalStateException("Failed to initialize mob map asset cache", e);
             }
         }
     }
 
-    private static void ensureStaticAssets() {
-        refreshFallbackIcons(44, 96);
-    }
-
-    private static void writeStaticMarkerAsset(String imagePath, byte[] pngBytes) {
-        GENERATED_MOB_ICONS.add(imagePath);
-        writeMarkerImage(imagePath, pngBytes);
-    }
-
-    private static void registerPackIfNeeded() {
-        if (registered) {
+    private static void ensureRebuildScheduler() {
+        if (rebuildScheduler != null) {
             return;
         }
 
-        AssetModule assetModule = AssetModule.get();
-        if (assetModule == null) {
-            return;
-        }
-
-        if (assetModule.getAssetPack(PACK_ID) != null) {
-            registered = true;
-            return;
-        }
-
-        assetModule.registerPack(PACK_ID, packRoot, buildRuntimeManifest(), true);
-        registered = true;
-        LOGGER.info("[MobMapMarkers] Registered runtime asset pack: " + PACK_ID);
-    }
-
-    private static PluginManifest buildRuntimeManifest() {
-        PluginManifest manifest = new PluginManifest();
-        manifest.setGroup(PACK_GROUP);
-        manifest.setName(PACK_NAME);
-        manifest.setVersion(Semver.fromString(PACK_VERSION));
-        manifest.setDescription("Generated mob marker icons for the Hytale world map");
-        manifest.setWebsite("https://github.com/maksimovc/MobMapMarkers");
-        manifest.setServerVersion(TARGET_SERVER_VERSION);
-
-        AuthorInfo author = new AuthorInfo();
-        author.setName("maksimovc");
-        manifest.setAuthors(List.of(author));
-        return manifest;
-    }
-
-    private static void ensurePackEnabled(Path configPath) {
-        if (!Files.exists(configPath)) {
-            return;
-        }
-
-        try {
-            String json = Files.readString(configPath, StandardCharsets.UTF_8);
-            String updated = json;
-            if (json.contains('"' + PACK_ID + '"')) {
-                updated = json.replaceAll(
-                        "(\\\"" + java.util.regex.Pattern.quote(PACK_ID) + "\\\"\\s*:\\s*\\{\\s*\\\"Enabled\\\"\\s*:\\s*)false",
-                        "$1true");
-            } else if (json.contains("\"Mods\": {")) {
-                updated = json.replace(
-                        "\"Mods\": {",
-                        "\"Mods\": {\n    \"" + PACK_ID + "\": {\n      \"Enabled\": true\n    },");
+        synchronized (MobMapAssetPack.class) {
+            if (rebuildScheduler != null) {
+                return;
             }
 
-            if (!updated.equals(json)) {
-                Files.writeString(configPath, updated, StandardCharsets.UTF_8);
+            rebuildScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread thread = new Thread(r, "MobMapMarkers-AssetRebuild");
+                thread.setDaemon(true);
+                return thread;
+            });
+        }
+    }
+
+    private static void scheduleRebuild(UUID viewerUuid, PacketHandler packetHandler) {
+        if (viewerUuid == null || packetHandler == null) {
+            return;
+        }
+
+        ensureRebuildScheduler();
+        ScheduledFuture<?> existing = PENDING_REBUILDS.get(viewerUuid);
+        if (existing != null && !existing.isDone()) {
+            return;
+        }
+
+        ScheduledFuture<?> future = rebuildScheduler.schedule(() -> {
+            try {
+                packetHandler.writeNoCache(new RequestCommonAssetsRebuild());
+            } finally {
+                PENDING_REBUILDS.remove(viewerUuid);
             }
+        }, REBUILD_DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+        PENDING_REBUILDS.put(viewerUuid, future);
+    }
+
+    private static void cleanupLegacyPack(Path legacyPackRoot) {
+        if (legacyPackRoot == null || !Files.exists(legacyPackRoot)) {
+            return;
+        }
+
+        try (Stream<Path> paths = Files.walk(legacyPackRoot)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    LOGGER.warning("[MobMapMarkers] Failed to delete legacy asset path "
+                            + path.getFileName() + ": " + e.getMessage());
+                }
+            });
+            LOGGER.info("[MobMapMarkers] Removed legacy MobMapMarkersAssets pack directory.");
         } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to auto-enable asset pack in config.json: " + e.getMessage());
+            LOGGER.warning("[MobMapMarkers] Failed to clean legacy asset pack directory: " + e.getMessage());
+        }
+    }
+
+    private static final class MobMarkerAsset extends CommonAsset {
+
+        private final byte[] pngBytes;
+
+        private MobMarkerAsset(String assetPath, byte[] pngBytes) {
+            super(assetPath, computeAssetHash(pngBytes), pngBytes);
+            this.pngBytes = pngBytes;
+        }
+
+        @Override
+        protected CompletableFuture<byte[]> getBlob0() {
+            return CompletableFuture.completedFuture(pngBytes);
+        }
+
+        private static void sendToPlayer(PacketHandler packetHandler, CommonAsset asset) {
+            byte[] blob = asset.getBlob().join();
+            byte[][] parts = ArrayUtil.split(blob, ASSET_PACKET_SIZE);
+            Packet[] packets = new Packet[parts.length + 2];
+            packets[0] = new AssetInitialize(asset.toPacket(), blob.length);
+            for (int index = 0; index < parts.length; index++) {
+                packets[index + 1] = new AssetPart(parts[index]);
+            }
+            packets[packets.length - 1] = new AssetFinalize();
+            for (Packet packet : packets) {
+                packetHandler.write((com.hypixel.hytale.protocol.ToClientPacket) packet);
+            }
         }
     }
 }

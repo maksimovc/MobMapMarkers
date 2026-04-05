@@ -27,7 +27,11 @@ final class MobMarkerManager {
                 }
 
                 FacingState previousState = previousFacing.get(snapshot.id());
-                boolean facingRight = resolveFacingRight(snapshot.position(), snapshot.rotation(), previousState);
+                boolean facingRight = MobFacingResolver.resolveFacingRight(
+                    snapshot.position(),
+                    snapshot.rotation(),
+                    previousState != null ? previousState.position() : null,
+                    previousState == null || previousState.facingRight());
                 nextFacing.put(snapshot.id(), new FacingState(new Vector3d(snapshot.position()), facingRight));
                 copied.add(new MobMarkerSnapshot(
                         snapshot.id(),
@@ -72,26 +76,6 @@ final class MobMarkerManager {
 
         Vector3d position = positions.get(uuid);
         return position != null ? new Vector3d(position) : null;
-    }
-
-    private static boolean resolveFacingRight(Vector3d position, Vector3f rotation, FacingState previousState) {
-        if (position != null && previousState != null && previousState.position() != null) {
-            double dx = position.x - previousState.position().x;
-            double dz = position.z - previousState.position().z;
-            if (Math.abs(dx) >= 0.08D && Math.abs(dx) >= Math.abs(dz)) {
-                return dx >= 0D;
-            }
-        }
-
-        if (rotation != null) {
-            double yawRadians = Math.toRadians(rotation.getYaw());
-            double horizontalFacing = Math.sin(yawRadians);
-            if (Math.abs(horizontalFacing) >= 0.2D) {
-                return horizontalFacing >= 0D;
-            }
-        }
-
-        return previousState == null || previousState.facingRight();
     }
 
     record MobMarkerSnapshot(String id, String roleName, String displayName, Vector3d position, Vector3f rotation,

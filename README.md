@@ -1,21 +1,24 @@
 # MobMapMarkers
 
-A Hytale server mod focused only on mob markers for the default world map. It scans NPC entities server-side, resolves official Hytale creature portraits from `Assets.zip` where possible, trims their transparent padding so they render larger inside the fixed map marker slot, and falls back to generated role icons for unknown or modded mobs when enabled.
+MobMapMarkers is a Hytale server mod focused on mob markers for the default world map, with optional compatibility for `SimpleMinimap 8.4.0`.
+
+Version `1.5.0` completes the migration away from the old runtime asset-pack approach. Marker icons are generated and delivered in memory, the plugin now shuts down cleanly, and source builds no longer require a local SimpleMinimap jar to compile.
 
 ## Features
 
-- Shows mobs on the large default world map without bundling player-avatar functionality
-- Uses official Hytale portraits from `Common/UI/Custom/Pages/Memories/npcs/*.png` when a role can be resolved
-- Crops transparent portrait borders before rendering, so configured larger icons are visibly larger instead of just higher-resolution
-- Mirrors icon facing from movement with yaw fallback so creatures visually point left or right on the map
-- Prewarms official vanilla mob icons on startup to avoid in-session asset rebuild spam
-- Skips scanning worlds with no players and caches player positions for cheap radius checks
-- Lets you cap visible mob markers per viewer so crowded worlds stay readable
+- Shows mobs on the large default Hytale world map without bundling player-avatar features
+- Uses official Hytale creature portraits from `Assets.zip` when they can be resolved
+- Falls back to generated icons for unknown or modded mob roles
+- Mirrors icon facing from movement with yaw fallback so creatures point left or right consistently
+- Draws real mob PNGs directly on `SimpleMinimap 8.4.0` through a custom HUD overlay
+- Keeps large-map behavior and SimpleMinimap behavior on separate render paths
+- Debounces client asset rebuild requests so large-map and minimap updates do not spam rebuild packets
+- Cleans up schedulers, packet watchers, cached assets, and viewer state on plugin shutdown
 
 ## Configuration
 
 Config file is generated automatically at:
-`UserData/Saves/<world>/mods/MobMapMarkersAssets/mobmapmarkers-config.json`
+`UserData/Saves/<world>/mods/MobMapMarkersData/mobmapmarkers-config.json`
 
 ```json
 {
@@ -23,12 +26,12 @@ Config file is generated automatically at:
   "showMobNames": true,
   "showDistance": true,
   "showMobMarkersOnCompass": false,
+  "showMobMarkersOnSimpleMinimap": true,
   "mobMarkerRadius": 768,
   "mobMarkerSize": 44,
   "mobIconContentScalePercent": 96,
   "maxVisibleMobMarkers": 128,
   "scanIntervalMs": 1000,
-  "prewarmOfficialIcons": true,
   "renderUnknownMobFallbacks": true
 }
 ```
@@ -38,19 +41,20 @@ Config file is generated automatically at:
 | `enableMobMarkers` | `true` | Master switch for all mob markers |
 | `showMobNames` | `true` | Show creature names in the map label |
 | `showDistance` | `true` | Append distance in meters to labels |
-| `showMobMarkersOnCompass` | `false` | Show mob markers even when only the compass overlay is open |
+| `showMobMarkersOnCompass` | `false` | Allow markers during compass-only updates |
+| `showMobMarkersOnSimpleMinimap` | `true` | Draw mob icons directly on `SimpleMinimap 8.4.0` when that mod is installed |
 | `mobMarkerRadius` | `768` | Max distance from the viewer; `0` means unlimited |
-| `mobMarkerSize` | `44` | Internal render resolution used when generating marker icons |
-| `mobIconContentScalePercent` | `96` | How much of the fixed Hytale marker slot the icon art should fill after transparent padding is trimmed |
+| `mobMarkerSize` | `44` | Internal render resolution for generated marker icons |
+| `mobIconContentScalePercent` | `96` | How much of the fixed Hytale marker slot the icon art should fill |
 | `maxVisibleMobMarkers` | `128` | Hard cap per viewer after nearest-first sorting; `0` means unlimited |
 | `scanIntervalMs` | `1000` | NPC scan cadence in milliseconds |
-| `prewarmOfficialIcons` | `true` | Build all official vanilla portrait markers at startup |
-| `renderUnknownMobFallbacks` | `true` | Generate role-based fallback icons for unresolved or modded mobs |
+| `renderUnknownMobFallbacks` | `true` | Generate fallback icons for unresolved or modded mob roles |
 
 ## Installation
 
-1. Copy `MobMapMarkers-1.0.1.jar` to `UserData/Saves/<YourWorld>/mods/`
+1. Copy `MobMapMarkers-1.5.0.jar` to `UserData/Saves/<YourWorld>/mods/`.
 2. Start the server.
+3. If `SimpleMinimap-8.4.0.jar` is installed too, keep `showMobMarkersOnSimpleMinimap` enabled to draw mob markers on the minimap.
 
 ## Building from source
 
@@ -59,7 +63,21 @@ cd MobMapMarkers
 ./gradlew clean build
 ```
 
-Output: `build/libs/MobMapMarkers-1.0.1.jar`
+Output:
+
+```text
+build/libs/MobMapMarkers-1.5.0.jar
+```
+
+Notes:
+
+- If `../../OtherMapMods/SimpleMinimap-8.4.0.jar` exists, the build compiles against the real SimpleMinimap API.
+- If that jar is missing, the build automatically falls back to internal compile-only stubs and still produces the mod jar.
+- You can force stub mode in CI with `-PmobMapMarkers.useSimpleMinimapStubs=true`.
+
+## Technical Notes
+
+- The compatibility contract and render/data-flow notes are documented in [TECHNICAL.md](TECHNICAL.md).
 
 ## Requirements
 

@@ -1,8 +1,8 @@
 {
   "Group": "thenexusgates",
   "Name": "MobMapMarkers",
-  "Version": "1.0.1",
-  "Description": "Shows configurable mob markers on the Hytale world map using cropped official portraits where possible.",
+  "Version": "1.5.0",
+  "Description": "Shows configurable mob markers on the Hytale world map and draws real mob portrait overlays on SimpleMinimap with safe shutdown and in-memory asset delivery.",
   "Authors": [
     {
       "Name": "maksimovc"

@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,7 +32,11 @@ final class MobMarkerTicker {
 
     private static final Logger LOGGER = Logger.getLogger(MobMarkerTicker.class.getName());
 
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "MobMapMarkers-MobTicker");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final MobMarkerManager manager;
     private final long intervalMs;
@@ -49,6 +54,15 @@ final class MobMarkerTicker {
         long initialDelayMs = Math.min(1000L, intervalMs);
         scheduler.scheduleAtFixedRate(this::tick, initialDelayMs, intervalMs, TimeUnit.MILLISECONDS);
         LOGGER.info("[MobMapMarkers] Mob marker ticker started: intervalMs=" + intervalMs);
+    }
+
+    void shutdown() {
+        if (!running.compareAndSet(true, false)) {
+            return;
+        }
+
+        scheduler.shutdownNow();
+        LOGGER.info("[MobMapMarkers] Mob marker ticker stopped.");
     }
 
     private void tick() {
@@ -79,7 +93,10 @@ final class MobMarkerTicker {
                     scanWorld(world);
                     cachePlayerPositions(world);
                 });
-            } catch (Exception e) {
+            } catch (RejectedExecutionException e) {
+                LOGGER.fine("[MobMapMarkers] Mob scan skipped for world "
+                        + world.getName() + " because the world executor is shutting down.");
+            } catch (RuntimeException e) {
                 LOGGER.warning("[MobMapMarkers] Failed to schedule mob scan for world "
                         + world.getName() + ": " + e.getMessage());
             }
@@ -105,9 +122,9 @@ final class MobMarkerTicker {
             store.forEachChunk(
                     npcArchetype,
                     (BiConsumer<ArchetypeChunk, CommandBuffer>) (chunk, commandBuffer) ->
-                            collectMobSnapshots(store, chunk, snapshots));
+                        collectMobSnapshots(store, chunk, snapshots));
             manager.setMobData(world.getName(), snapshots);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOGGER.warning("[MobMapMarkers] Mob scan failed for world "
                     + world.getName() + ": " + e.getMessage());
         }
@@ -121,7 +138,7 @@ final class MobMarkerTicker {
                 if (snapshot != null) {
                     snapshots.add(snapshot);
                 }
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 LOGGER.fine("[MobMapMarkers] Skipped NPC during mob scan: " + e.getMessage());
             }
         }
@@ -181,7 +198,7 @@ final class MobMarkerTicker {
             }
 
             manager.setPlayerPositions(world.getName(), positions);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOGGER.warning("[MobMapMarkers] Failed to cache player positions for world "
                     + world.getName() + ": " + e.getMessage());
         }

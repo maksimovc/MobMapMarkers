@@ -16,12 +16,12 @@ final class MobMapMarkersConfig {
     boolean showMobNames = true;
     boolean showDistance = true;
     boolean showMobMarkersOnCompass = false;
+    boolean showMobMarkersOnSimpleMinimap = true;
     int mobMarkerRadius = 768;
     int mobMarkerSize = 44;
     int mobIconContentScalePercent = 96;
     int maxVisibleMobMarkers = 128;
     int scanIntervalMs = 1000;
-    boolean prewarmOfficialIcons = true;
     boolean renderUnknownMobFallbacks = true;
 
     private MobMapMarkersConfig() {
@@ -40,12 +40,18 @@ final class MobMapMarkersConfig {
             config.showMobNames = readBool(json, "showMobNames", config.showMobNames);
             config.showDistance = readBool(json, "showDistance", config.showDistance);
             config.showMobMarkersOnCompass = readBool(json, "showMobMarkersOnCompass", config.showMobMarkersOnCompass);
+            config.showMobMarkersOnSimpleMinimap = readBool(
+                    json,
+                    "showMobMarkersOnSimpleMinimap",
+                    config.showMobMarkersOnSimpleMinimap);
             config.mobMarkerRadius = readInt(json, "mobMarkerRadius", config.mobMarkerRadius);
             config.mobMarkerSize = readInt(json, "mobMarkerSize", config.mobMarkerSize);
-                config.mobIconContentScalePercent = readInt(json, "mobIconContentScalePercent", config.mobIconContentScalePercent);
+            config.mobIconContentScalePercent = readInt(
+                    json,
+                    "mobIconContentScalePercent",
+                    config.mobIconContentScalePercent);
             config.maxVisibleMobMarkers = readInt(json, "maxVisibleMobMarkers", config.maxVisibleMobMarkers);
             config.scanIntervalMs = readInt(json, "scanIntervalMs", config.scanIntervalMs);
-            config.prewarmOfficialIcons = readBool(json, "prewarmOfficialIcons", config.prewarmOfficialIcons);
             config.renderUnknownMobFallbacks = readBool(json, "renderUnknownMobFallbacks", config.renderUnknownMobFallbacks);
             normalize(config);
             save(config, configPath);
@@ -80,12 +86,12 @@ final class MobMapMarkersConfig {
                   "showMobNames": %s,
                   "showDistance": %s,
                   "showMobMarkersOnCompass": %s,
+                  "showMobMarkersOnSimpleMinimap": %s,
                   "mobMarkerRadius": %d,
                   "mobMarkerSize": %d,
                   "mobIconContentScalePercent": %d,
                   "maxVisibleMobMarkers": %d,
                   "scanIntervalMs": %d,
-                  "prewarmOfficialIcons": %s,
                   "renderUnknownMobFallbacks": %s
                 }
                 """.formatted(
@@ -93,12 +99,12 @@ final class MobMapMarkersConfig {
                 config.showMobNames,
                 config.showDistance,
                 config.showMobMarkersOnCompass,
+                config.showMobMarkersOnSimpleMinimap,
                 config.mobMarkerRadius,
                 config.mobMarkerSize,
                 config.mobIconContentScalePercent,
                 config.maxVisibleMobMarkers,
                 config.scanIntervalMs,
-                config.prewarmOfficialIcons,
                 config.renderUnknownMobFallbacks);
         try {
             Files.createDirectories(configPath.getParent());

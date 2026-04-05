@@ -16,6 +16,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
@@ -75,6 +76,7 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
         int limit = config.maxVisibleMobMarkers > 0
                 ? Math.min(config.maxVisibleMobMarkers, candidates.size())
                 : candidates.size();
+        List<String> imagePathsToDeliver = new ArrayList<>();
 
         for (int index = 0; index < limit; index++) {
             MarkerCandidate candidate = candidates.get(index);
@@ -84,12 +86,13 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                         snapshot.roleName(),
                         snapshot.displayName(),
                         config.mobMarkerSize,
-                    config.mobIconContentScalePercent,
+                        config.mobIconContentScalePercent,
                         snapshot.facingRight(),
                         config.renderUnknownMobFallbacks);
                 if (markerImage == null) {
                     continue;
                 }
+                imagePathsToDeliver.add(markerImage);
 
                 String label = buildLabel(
                         snapshot.displayName(),
@@ -104,9 +107,15 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                         markerImage,
                         transform);
                 collector.add(marker);
-            } catch (Exception e) {
-                LOGGER.warning("[MobMapMarkers] Mob marker build failed: " + e.getMessage());
+            } catch (RuntimeException e) {
+                LOGGER.log(Level.WARNING, "[MobMapMarkers] Mob marker build failed for snapshot "
+                        + snapshot.id() + " in world " + worldName, e);
             }
+        }
+
+        PlayerRef viewerRef = findViewerRef(world.getPlayerRefs(), viewerUuid);
+        if (viewerRef != null && !imagePathsToDeliver.isEmpty()) {
+            MobMapAssetPack.deliverAssetsToViewer(viewerRef, imagePathsToDeliver);
         }
     }
 
@@ -141,6 +150,20 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
             Vector3d position = LivePlayerTracker.resolvePosition(ref);
             if (position != null) {
                 return position;
+            }
+        }
+
+        return null;
+    }
+
+    private static PlayerRef findViewerRef(Collection<PlayerRef> playerRefs, UUID viewerUuid) {
+        if (playerRefs == null || viewerUuid == null) {
+            return null;
+        }
+
+        for (PlayerRef ref : playerRefs) {
+            if (ref != null && viewerUuid.equals(ref.getUuid())) {
+                return ref;
             }
         }
 
