@@ -50,7 +50,7 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
     protected void setup() {
         getLogger().at(Level.INFO).log("[MobMapMarkers] Starting v" + VERSION);
 
-        MobMapAssetPack.init();
+        MobMapAssetPack.init(getDataDirectory());
         LivePlayerTracker.register();
         config = MobMapMarkersConfig.load(
             MobMapAssetPack.getDataRoot().resolve("mobmapmarkers-config.json"));

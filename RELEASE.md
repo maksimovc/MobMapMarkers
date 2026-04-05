@@ -32,7 +32,7 @@ The mod:
 | Java version | `25` |
 | Target server version | `2026.03.26-89796e57b` |
 | Manifest file | `src/main/resources/manifest.json` |
-| Config file | `mods/MobMapMarkersData/mobmapmarkers-config.json` |
+| Config file | `mods/thenexusgates_MobMapMarkers/mobmapmarkers-config.json` |
 | Includes asset pack | `false` |
 | License | `AGPL-3.0` |
 
@@ -102,6 +102,7 @@ Then validate in game:
 - Debounced marker asset rebuild requests to reduce duplicate rebuild triggers when large-map and minimap paths run together
 - Replaced deprecated player UUID lookup with stable `CommandSender` access
 - Added unit tests for config persistence, portrait candidate generation, and facing resolution
+- Migrated plugin runtime data out of `mods/MobMapMarkersData` into the plugin data directory to stop manifest-scan noise during startup
 - Documented the SimpleMinimap/Hytale compatibility contract and the marker render pipeline
 
 ## GitHub Release Title
@@ -175,5 +176,5 @@ MobMapMarkers is a dedicated Hytale server mod for showing mobs on the default w
 - Verify the output jar name is correct
 - Confirm startup log lines match the expected version
 - Confirm generated config no longer contains `prewarmOfficialIcons`
-- Confirm docs mention `MobMapMarkersData/mobmapmarkers-config.json`
+- Confirm docs mention `mods/thenexusgates_MobMapMarkers/mobmapmarkers-config.json`
 - Confirm the release text mentions clean shutdown, stub build support, and in-memory asset delivery

@@ -17,6 +17,7 @@ The runtime pipeline is intentionally split into two rendering paths.
 - Marker icons are cached in memory and sent directly as `CommonAsset` packets.
 - Asset hashes are stable SHA-256 values per PNG blob.
 - Rebuild requests are debounced so simultaneous large-map and minimap updates do not each force a separate immediate rebuild.
+- Runtime config now lives under the plugin data directory instead of a `mods/MobMapMarkersData` pseudo-mod folder; legacy config is migrated forward on startup.
 
 ## Shutdown Contract
 

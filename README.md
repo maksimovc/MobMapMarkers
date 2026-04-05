@@ -18,7 +18,9 @@ Version `1.5.0` completes the migration away from the old runtime asset-pack app
 ## Configuration
 
 Config file is generated automatically at:
-`UserData/Saves/<world>/mods/MobMapMarkersData/mobmapmarkers-config.json`
+`UserData/Saves/<world>/mods/thenexusgates_MobMapMarkers/mobmapmarkers-config.json`
+
+If an older `mods/MobMapMarkersData` folder already exists, version `1.5.0` migrates the config forward automatically and removes the empty legacy directory.
 
 ```json
 {

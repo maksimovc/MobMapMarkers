@@ -58,8 +58,12 @@ final class MobMapAssetPack {
     private MobMapAssetPack() {
     }
 
-    static void init() {
-        ensureInitialized();
+    static void init(Path pluginDataRoot) {
+        ensureInitialized(pluginDataRoot, null);
+    }
+
+    static void init(Path pluginDataRoot, Path legacyModsDirectory) {
+        ensureInitialized(pluginDataRoot, legacyModsDirectory);
     }
 
     static Path getDataRoot() {
@@ -292,6 +296,12 @@ final class MobMapAssetPack {
     }
 
     private static void ensureInitialized() {
+        if (!initialized || dataRoot == null) {
+            throw new IllegalStateException("MobMapAssetPack.init(Path) must be called before use");
+        }
+    }
+
+    private static void ensureInitialized(Path pluginDataRoot, Path legacyModsDirectory) {
         if (initialized) {
             return;
         }
@@ -303,23 +313,59 @@ final class MobMapAssetPack {
 
             try {
                 ensureRebuildScheduler();
-                Path pluginLocation = Paths.get(MobMapMarkersPlugin.class
-                        .getProtectionDomain()
-                        .getCodeSource()
-                        .getLocation()
-                        .toURI());
-                Path modsDirectory = Files.isDirectory(pluginLocation)
-                        ? pluginLocation
-                        : pluginLocation.getParent();
+                Path resolvedLegacyModsDirectory = legacyModsDirectory != null
+                        ? legacyModsDirectory
+                        : resolveLegacyModsDirectory();
 
-                dataRoot = modsDirectory.resolve("MobMapMarkersData");
+                dataRoot = pluginDataRoot;
                 Files.createDirectories(dataRoot);
-                cleanupLegacyPack(modsDirectory.resolve("MobMapMarkersAssets"));
+                migrateLegacyDataDirectory(resolvedLegacyModsDirectory.resolve("MobMapMarkersData"), dataRoot);
+                cleanupLegacyPack(resolvedLegacyModsDirectory.resolve("MobMapMarkersAssets"));
                 initialized = true;
             } catch (IOException | URISyntaxException e) {
                 throw new IllegalStateException("Failed to initialize mob map asset cache", e);
             }
         }
+    }
+
+    private static Path resolveLegacyModsDirectory() throws URISyntaxException {
+        Path pluginLocation = Paths.get(MobMapMarkersPlugin.class
+                .getProtectionDomain()
+                .getCodeSource()
+                .getLocation()
+                .toURI());
+        return Files.isDirectory(pluginLocation)
+                ? pluginLocation
+                : pluginLocation.getParent();
+    }
+
+    private static void migrateLegacyDataDirectory(Path legacyDataDirectory, Path newDataDirectory) throws IOException {
+        if (legacyDataDirectory == null || newDataDirectory == null || legacyDataDirectory.equals(newDataDirectory)) {
+            return;
+        }
+
+        Path legacyConfigPath = legacyDataDirectory.resolve("mobmapmarkers-config.json");
+        Path newConfigPath = newDataDirectory.resolve("mobmapmarkers-config.json");
+        if (Files.exists(legacyConfigPath) && Files.notExists(newConfigPath)) {
+            Files.move(legacyConfigPath, newConfigPath);
+        }
+
+        deleteIfEmpty(legacyDataDirectory);
+    }
+
+    private static void deleteIfEmpty(Path directory) throws IOException {
+        if (directory == null || !Files.isDirectory(directory)) {
+            return;
+        }
+
+        try (Stream<Path> stream = Files.list(directory)) {
+            if (stream.findAny().isPresent()) {
+                LOGGER.info("[MobMapMarkers] Leaving legacy data directory in place because it still contains files: " + directory);
+                return;
+            }
+        }
+
+        Files.deleteIfExists(directory);
     }
 
     private static void ensureRebuildScheduler() {
