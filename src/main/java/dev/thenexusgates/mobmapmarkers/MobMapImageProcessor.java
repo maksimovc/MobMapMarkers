@@ -13,6 +13,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.logging.Logger;
 
 final class MobMapImageProcessor {
@@ -71,6 +72,67 @@ final class MobMapImageProcessor {
 
     static byte[] createFallbackMarkerPng(int size) {
         return createFallbackMarkerPng(size, 96);
+    }
+
+    /**
+     * Renders a plain circle badge (no map-pin tail) for use on the minimap, where
+     * the icon is centred directly on the mob's world position.
+     * The big-map marker ({@link #createMobMarkerPng}) is intentionally NOT used here
+     * because its downward tail shifts the circle away from the true mob position.
+     */
+    static byte[] createMinimapBadgePng(String roleName, String displayName, int size) {
+        try {
+            int iconSize = Math.max(16, size);
+            BufferedImage out = new BufferedImage(iconSize, iconSize, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = out.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+            Color fill = colorFromSeed(roleName);
+            Color border = fill.darker().darker();
+
+            int inset = Math.max(1, iconSize / 12);
+            int circleSize = iconSize - inset * 2;
+
+            // Shadow
+            g.setColor(new Color(18, 22, 28, 135));
+            g.fillOval(inset, inset + 1, circleSize, circleSize);
+
+            // Fill
+            g.setColor(fill);
+            g.fillOval(inset, inset, circleSize, circleSize);
+
+            // Gloss highlight
+            g.setColor(new Color(255, 255, 255, 45));
+            g.fillOval(inset + Math.max(1, iconSize / 10), inset + Math.max(1, iconSize / 10),
+                    Math.max(3, iconSize / 4), Math.max(3, iconSize / 5));
+
+            // Border
+            g.setColor(border);
+            g.setStroke(new BasicStroke(Math.max(1f, iconSize / 18f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.drawOval(inset, inset, circleSize, circleSize);
+
+            // Text — centred in the circle
+            String text = abbreviation(displayName != null ? displayName : roleName);
+            int fontSize = text.length() > 1 ? Math.max(8, iconSize / 2) : Math.max(10, (int) (iconSize / 1.85f));
+            g.setFont(new Font("SansSerif", Font.BOLD, fontSize));
+            FontMetrics metrics = g.getFontMetrics();
+            int textX = (iconSize - metrics.stringWidth(text)) / 2;
+            int textY = (iconSize - metrics.getHeight()) / 2 + metrics.getAscent();
+
+            g.setColor(new Color(0, 0, 0, 90));
+            g.drawString(text, textX + 1, textY + 1);
+            g.setColor(Color.WHITE);
+            g.drawString(text, textX, textY);
+            g.dispose();
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(out, "PNG", baos);
+            return baos.toByteArray();
+        } catch (IOException e) {
+            LOGGER.warning("[MobMapMarkers] Failed to create minimap badge PNG: " + e.getMessage());
+            return createFallbackMarkerPng(size);
+        }
     }
 
     static byte[] createMobMarkerPng(String roleName, String displayName, int size) {
@@ -236,17 +298,30 @@ final class MobMapImageProcessor {
             return "?";
         }
 
-        String cleaned = name.replaceAll("[^A-Za-z0-9 ]", " ").trim();
+        String cleaned = name.replaceAll("[^\\p{L}\\p{N} ]", " ").trim();
         if (cleaned.isEmpty()) {
             return "?";
         }
 
         String[] parts = cleaned.split("\\s+");
         if (parts.length >= 2) {
-            return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+            return (firstCodePoint(parts[0]) + firstCodePoint(parts[1])).toUpperCase(Locale.ROOT);
         }
 
         String compact = parts[0];
-        return compact.substring(0, Math.min(2, compact.length())).toUpperCase();
+        return leadingCodePoints(compact, 2).toUpperCase(Locale.ROOT);
+    }
+
+    private static String firstCodePoint(String value) {
+        return leadingCodePoints(value, 1);
+    }
+
+    private static String leadingCodePoints(String value, int count) {
+        if (value == null || value.isEmpty() || count <= 0) {
+            return "";
+        }
+
+        int endIndex = value.offsetByCodePoints(0, Math.min(count, value.codePointCount(0, value.length())));
+        return value.substring(0, endIndex);
     }
 }

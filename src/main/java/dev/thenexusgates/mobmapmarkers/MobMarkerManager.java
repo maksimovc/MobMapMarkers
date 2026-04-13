@@ -15,6 +15,7 @@ final class MobMarkerManager {
     private final Map<String, List<MobMarkerSnapshot>> mobDataByWorld = new ConcurrentHashMap<>();
     private final Map<String, Map<UUID, Vector3d>> playerPositionsByWorld = new ConcurrentHashMap<>();
     private final Map<String, Map<String, FacingState>> facingStateByWorld = new ConcurrentHashMap<>();
+    private final Map<String, MobCatalogEntry> catalogByMobKey = new ConcurrentHashMap<>();
 
     void setMobData(String worldName, Collection<MobMarkerSnapshot> snapshots) {
         List<MobMarkerSnapshot> copied = new ArrayList<>();
@@ -36,10 +37,21 @@ final class MobMarkerManager {
                 copied.add(new MobMarkerSnapshot(
                         snapshot.id(),
                         snapshot.roleName(),
+                        snapshot.nameTranslationKey(),
                         snapshot.displayName(),
                         new Vector3d(snapshot.position()),
                         snapshot.rotation() != null ? new Vector3f(snapshot.rotation()) : null,
                         facingRight));
+
+                String mobKey = MobMarkerKeys.normalize(snapshot.roleName());
+                if (mobKey != null) {
+                    catalogByMobKey.put(mobKey, new MobCatalogEntry(
+                            mobKey,
+                            snapshot.roleName(),
+                            snapshot.nameTranslationKey(),
+                            snapshot.displayName(),
+                            facingRight));
+                }
             }
         }
 
@@ -78,8 +90,12 @@ final class MobMarkerManager {
         return position != null ? new Vector3d(position) : null;
     }
 
-    record MobMarkerSnapshot(String id, String roleName, String displayName, Vector3d position, Vector3f rotation,
-                             boolean facingRight) {
+    List<MobCatalogEntry> getCatalogEntries() {
+        return List.copyOf(catalogByMobKey.values());
+    }
+
+    record MobMarkerSnapshot(String id, String roleName, String nameTranslationKey, String displayName,
+                             Vector3d position, Vector3f rotation, boolean facingRight) {
     }
 
     private record FacingState(Vector3d position, boolean facingRight) {

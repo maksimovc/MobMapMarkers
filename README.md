@@ -1,8 +1,8 @@
 # MobMapMarkers
 
-MobMapMarkers is a Hytale server mod focused on mob markers for the default world map, with optional compatibility for `SimpleMinimap 8.4.0`.
+MobMapMarkers is a Hytale server mod focused on mob markers for the default world map, with optional compatibility for `FastMiniMap`.
 
-Version `1.5.0` completes the migration away from the old runtime asset-pack approach. Marker icons are generated and delivered in memory, the plugin now shuts down cleanly, and source builds no longer require a local SimpleMinimap jar to compile.
+Version `1.6.0` removes the old SimpleMinimap integration entirely and adds native FastMiniMap mob dot support. Marker icons are generated and delivered in memory, and the plugin shuts down cleanly.
 
 ## Features
 
@@ -10,9 +10,9 @@ Version `1.5.0` completes the migration away from the old runtime asset-pack app
 - Uses official Hytale creature portraits from `Assets.zip` when they can be resolved
 - Falls back to generated icons for unknown or modded mob roles
 - Mirrors icon facing from movement with yaw fallback so creatures point left or right consistently
-- Draws real mob PNGs directly on `SimpleMinimap 8.4.0` through a custom HUD overlay
-- Keeps large-map behavior and SimpleMinimap behavior on separate render paths
-- Debounces client asset rebuild requests so large-map and minimap updates do not spam rebuild packets
+- Shows mob dots on `FastMiniMap` when that mod is installed alongside this one
+- Keeps large-map behavior and FastMiniMap overlay on separate code paths
+- Debounces client asset rebuild requests so large-map updates do not spam rebuild packets
 - Cleans up schedulers, packet watchers, cached assets, and viewer state on plugin shutdown
 
 ## Configuration
@@ -28,7 +28,7 @@ If an older `mods/MobMapMarkersData` folder already exists, version `1.5.0` migr
   "showMobNames": true,
   "showDistance": true,
   "showMobMarkersOnCompass": false,
-  "showMobMarkersOnSimpleMinimap": true,
+  "showMobMarkersOnFastMiniMap": true,
   "mobMarkerRadius": 768,
   "mobMarkerSize": 44,
   "mobIconContentScalePercent": 96,
@@ -44,7 +44,7 @@ If an older `mods/MobMapMarkersData` folder already exists, version `1.5.0` migr
 | `showMobNames` | `true` | Show creature names in the map label |
 | `showDistance` | `true` | Append distance in meters to labels |
 | `showMobMarkersOnCompass` | `false` | Allow markers during compass-only updates |
-| `showMobMarkersOnSimpleMinimap` | `true` | Draw mob icons directly on `SimpleMinimap 8.4.0` when that mod is installed |
+| `showMobMarkersOnFastMiniMap` | `true` | Show mob dots on `FastMiniMap` when that mod is installed |
 | `mobMarkerRadius` | `768` | Max distance from the viewer; `0` means unlimited |
 | `mobMarkerSize` | `44` | Internal render resolution for generated marker icons |
 | `mobIconContentScalePercent` | `96` | How much of the fixed Hytale marker slot the icon art should fill |
@@ -54,9 +54,9 @@ If an older `mods/MobMapMarkersData` folder already exists, version `1.5.0` migr
 
 ## Installation
 
-1. Copy `MobMapMarkers-1.5.0.jar` to `UserData/Saves/<YourWorld>/mods/`.
+1. Copy `MobMapMarkers-1.6.0.jar` to `UserData/Saves/<YourWorld>/mods/`.
 2. Start the server.
-3. If `SimpleMinimap-8.4.0.jar` is installed too, keep `showMobMarkersOnSimpleMinimap` enabled to draw mob markers on the minimap.
+3. If `FastMiniMap.jar` is installed too, keep `showMobMarkersOnFastMiniMap` enabled to show mob dots on the minimap.
 
 ## Building from source
 
@@ -73,9 +73,8 @@ build/libs/MobMapMarkers-1.5.0.jar
 
 Notes:
 
-- If `../../OtherMapMods/SimpleMinimap-8.4.0.jar` exists, the build compiles against the real SimpleMinimap API.
-- If that jar is missing, the build automatically falls back to internal compile-only stubs and still produces the mod jar.
-- You can force stub mode in CI with `-PmobMapMarkers.useSimpleMinimapStubs=true`.
+- The build references `../FastMiniMap/build/libs/FastMiniMap-1.0.0.jar` as a `compileOnly` dependency; build FastMiniMap first.
+- If the FastMiniMap jar is absent, the build still succeeds — the FastMiniMap integration is detected at runtime.
 
 ## Technical Notes
 

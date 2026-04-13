@@ -7,8 +7,8 @@ The runtime pipeline is intentionally split into two rendering paths.
 1. `MobMarkerTicker` scans live worlds on a schedule.
 2. NPC snapshots and cached player positions are written into `MobMarkerManager`.
 3. `MobMarkerProvider` consumes the snapshots for the large Hytale world map.
-4. `SimpleMinimapOverlayService` replaces SimpleMinimap HUD instances with `MobMapMarkersMinimapHud` when SimpleMinimap is present.
-5. `MobMapMarkersMinimapHud` projects nearby mobs into minimap space and renders direct `AssetImage` nodes.
+4. `FastMiniMapCompatService` implements `FastMiniMapMobLayerApi.MobDotProvider` and is registered at startup when `FastMiniMap` is detected.
+5. On each FastMiniMap render tick the session queries the provider; `FastMiniMapCompatService` filters by radius and visibility rules and returns colored dot positions.
 6. `MobMapAssetPack` generates portrait/fallback PNGs in memory and delivers only the needed assets to each viewer.
 
 ## Asset Delivery Contract
@@ -24,37 +24,28 @@ The runtime pipeline is intentionally split into two rendering paths.
 Version `1.5.0` treats plugin shutdown as a first-class lifecycle step.
 
 - `MobMarkerTicker` stops its scheduler.
-- `SimpleMinimapOverlayService` stops its scheduler and cancels replacement tick tasks.
+- `FastMiniMapCompatService` calls `FastMiniMapMobLayerApi.setProvider(null)` so no stale provider reference is left inside FastMiniMap.
 - `LivePlayerTracker` deregisters its inbound packet filter.
 - `MobMapAssetPack` clears cached assets, delivered-viewer state, and pending rebuild tasks.
 - `MobMapMarkersPlugin` clears active player state and releases references.
 
-## Compatibility Contract
+## FastMiniMap Compatibility Contract
 
-`SimpleMinimap` support remains optional at runtime.
+`FastMiniMap` support is optional at runtime and uses a stable public API.
 
-The compatibility layer assumes the presence of these types when `SimpleMinimap-8.4.0` is installed:
+The integration relies on `FastMiniMapMobLayerApi` (package `dev.thenexusgates.fastminimap`):
 
-- `com.Landscaper.plugin.external.MinimapApi`
-- `com.Landscaper.plugin.MinimapPlugin`
-- `com.Landscaper.plugin.ui.MinimapHud`
-- `com.Landscaper.plugin.config.MinimapConfig`
-- `com.Landscaper.plugin.external.MultipleHudHelper`
+- `FastMiniMapMobLayerApi.MobDot(double x, double z, int argb)` — a dot position record
+- `FastMiniMapMobLayerApi.MobDotProvider` — functional interface returning `List<MobDot>` per viewer
+- `FastMiniMapMobLayerApi.setProvider(MobDotProvider)` — registers the active provider
+- `FastMiniMapMobLayerApi.getProvider()` — queried by the FastMiniMap render session each tick
 
-The integration also relies on the following private upstream members remaining compatible:
-
-- `MinimapApi.plugin`
-- `MinimapPlugin.huds`
-- `MinimapPlugin.tickTasks`
-- `MinimapPlugin.multipleHudHelper`
-- `MinimapPlugin.initializePlayerHud(...)`
+`FastMiniMapCompat` detects the API class at startup via `Class.forName`. If FastMiniMap is absent the provider is never registered and no dots appear.
 
 On the Hytale side, large-map visibility detection currently depends on `WorldMapTracker.clientHasWorldMapVisible`.
 
-If any of those fields or methods change in a future upstream update, `SimpleMinimap` support may need to be adjusted even if the rest of MobMapMarkers still compiles.
-
 ## Source Build Contract
 
-- If a local `../../OtherMapMods/SimpleMinimap-8.4.0.jar` exists, Gradle uses it as the compile-only API.
-- If it does not exist, Gradle compiles against internal stub sources under `src/simpleminimap-stubs/java`.
-- The produced mod jar excludes those stub classes, so runtime compatibility still depends on the real SimpleMinimap mod being installed.
+- The build references `../FastMiniMap/build/libs/FastMiniMap-1.0.0.jar` as a `compileOnly` dependency.
+- Build FastMiniMap first; if the jar is absent the build still succeeds — only the FastMiniMap-related classes use it.
+- No stub sources are required or present.

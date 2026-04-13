@@ -16,7 +16,7 @@ final class MobMapMarkersConfig {
     boolean showMobNames = true;
     boolean showDistance = true;
     boolean showMobMarkersOnCompass = false;
-    boolean showMobMarkersOnSimpleMinimap = true;
+    boolean showMobMarkersOnFastMiniMap = true;
     int mobMarkerRadius = 768;
     int mobMarkerSize = 44;
     int mobIconContentScalePercent = 96;
@@ -40,10 +40,10 @@ final class MobMapMarkersConfig {
             config.showMobNames = readBool(json, "showMobNames", config.showMobNames);
             config.showDistance = readBool(json, "showDistance", config.showDistance);
             config.showMobMarkersOnCompass = readBool(json, "showMobMarkersOnCompass", config.showMobMarkersOnCompass);
-            config.showMobMarkersOnSimpleMinimap = readBool(
+            config.showMobMarkersOnFastMiniMap = readBool(
                     json,
-                    "showMobMarkersOnSimpleMinimap",
-                    config.showMobMarkersOnSimpleMinimap);
+                    "showMobMarkersOnFastMiniMap",
+                    config.showMobMarkersOnFastMiniMap);
             config.mobMarkerRadius = readInt(json, "mobMarkerRadius", config.mobMarkerRadius);
             config.mobMarkerSize = readInt(json, "mobMarkerSize", config.mobMarkerSize);
             config.mobIconContentScalePercent = readInt(
@@ -86,7 +86,7 @@ final class MobMapMarkersConfig {
                   "showMobNames": %s,
                   "showDistance": %s,
                   "showMobMarkersOnCompass": %s,
-                  "showMobMarkersOnSimpleMinimap": %s,
+                  "showMobMarkersOnFastMiniMap": %s,
                   "mobMarkerRadius": %d,
                   "mobMarkerSize": %d,
                   "mobIconContentScalePercent": %d,
@@ -99,7 +99,7 @@ final class MobMapMarkersConfig {
                 config.showMobNames,
                 config.showDistance,
                 config.showMobMarkersOnCompass,
-                config.showMobMarkersOnSimpleMinimap,
+                config.showMobMarkersOnFastMiniMap,
                 config.mobMarkerRadius,
                 config.mobMarkerSize,
                 config.mobIconContentScalePercent,

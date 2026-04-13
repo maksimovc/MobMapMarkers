@@ -4,8 +4,11 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class HytaleNpcPortraitResolverTest {
@@ -26,6 +29,19 @@ class HytaleNpcPortraitResolverTest {
         assertTrue(templeCandidates.contains("Mosshorn_Plain_Wander"));
         assertTrue(templeCandidates.contains("Temple_Mosshorn_Plain"));
         assertTrue(templeCandidates.contains("Temple_Mosshorn"));
+
+        List<String> critterTokens = MobPortraitMatcher.normalizedTokens("Passive_Critter_Wander_Red");
+        assertEquals(List.of("critter"), critterTokens);
+    }
+
+    @Test
+    void fuzzyMatcherAcceptsDescriptorHeavyRoles() {
+        String portrait = MobPortraitMatcher.findBestFuzzyPortrait(
+                "Passive_Critter_Wander_Red",
+                Set.of("Critter"),
+                Map.of("Critter", MobPortraitMatcher.normalizedTokens("Critter")));
+        assertNotNull(portrait);
+        assertEquals("Critter", portrait);
     }
 
     private static String invokeNormalizeRole(String roleName) throws Exception {

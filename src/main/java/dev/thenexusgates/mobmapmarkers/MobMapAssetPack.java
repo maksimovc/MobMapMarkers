@@ -12,6 +12,7 @@ import com.hypixel.hytale.server.core.universe.PlayerRef;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -101,7 +102,8 @@ final class MobMapAssetPack {
         dataRoot = null;
     }
 
-    static String ensureMobIcon(String roleName, String displayName, int size, int contentScalePercent,
+    static String ensureMobIcon(String roleName, String displayName, String localizedAssetKey,
+                                int size, int contentScalePercent,
                                 boolean facingRight, boolean renderFallback) {
         ensureInitialized();
 
@@ -127,6 +129,19 @@ final class MobMapAssetPack {
             }
         }
 
+        byte[] modPortraitPng = MobArchiveIndex.loadModPortraitPngByRoleName(roleName);
+        if (modPortraitPng != null && modPortraitPng.length > 0) {
+            String imagePath = buildImagePath("mmm-mod", roleName, normalizedSize, normalizedScale, facingRight);
+            String resolvedImagePath = ensureGeneratedImage(imagePath, () -> MobMapImageProcessor.createMobPortraitMarkerPng(
+                    modPortraitPng,
+                    normalizedSize,
+                    facingRight,
+                    normalizedScale));
+            if (resolvedImagePath != null) {
+                return resolvedImagePath;
+            }
+        }
+
         if (!renderFallback) {
             return null;
         }
@@ -136,7 +151,7 @@ final class MobMapAssetPack {
             return buildFallbackImagePath(normalizedSize, normalizedScale, facingRight);
         }
 
-        String imagePath = buildImagePath("mmm-generated", roleName, normalizedSize, normalizedScale, facingRight);
+        String imagePath = buildGeneratedImagePath(roleName, localizedAssetKey, normalizedSize, normalizedScale, facingRight);
         return ensureGeneratedImage(imagePath,
                 () -> MobMapImageProcessor.createMobMarkerPng(roleName, displayName, normalizedSize));
     }
@@ -251,6 +266,23 @@ final class MobMapAssetPack {
                 + ".png";
     }
 
+    private static String buildGeneratedImagePath(String roleName, String localizedAssetKey,
+                                                  int size, int contentScalePercent, boolean facingRight) {
+        String roleSegment = sanitizeKey(roleName);
+        String localeSegment = stableKey(localizedAssetKey);
+        return "mmm-generated"
+                + "-"
+                + roleSegment
+                + "-"
+                + localeSegment
+                + "-s"
+                + size
+                + "-p"
+                + contentScalePercent
+                + (facingRight ? "-right" : "-left")
+                + ".png";
+    }
+
     private static int normalizeIconSize(int size) {
         return Math.max(MIN_ICON_SIZE, size);
     }
@@ -264,6 +296,19 @@ final class MobMapAssetPack {
         normalized = normalized.replaceAll("[^a-z0-9]+", "-");
         normalized = normalized.replaceAll("(^-+)|(-+$)", "");
         return normalized.isBlank() ? UNKNOWN_IMAGE_KEY : normalized;
+    }
+
+    private static String stableKey(String key) {
+        if (key == null || key.isBlank()) {
+            return UNKNOWN_IMAGE_KEY;
+        }
+
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(key.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
+        } catch (NoSuchAlgorithmException e) {
+            return Integer.toHexString(key.hashCode());
+        }
     }
 
     private static String ensureGeneratedImage(String imagePath, Supplier<byte[]> pngFactory) {

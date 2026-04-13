@@ -2,7 +2,7 @@
   "Group": "thenexusgates",
   "Name": "MobMapMarkers",
   "Version": "1.5.0",
-  "Description": "Shows configurable mob markers on the Hytale world map and draws real mob portrait overlays on SimpleMinimap with safe shutdown and in-memory asset delivery.",
+  "Description": "Shows configurable mob markers on the Hytale world map with optional FastMiniMap mob dot overlay, safe shutdown, and in-memory asset delivery.",
   "Authors": [
     {
       "Name": "maksimovc"
@@ -11,6 +11,6 @@
   "Website": "https://github.com/maksimovc/MobMapMarkers",
   "ServerVersion": "2026.03.26-89796e57b",
   "DisabledByDefault": false,
-  "IncludesAssetPack": false,
+  "IncludesAssetPack": true,
   "Main": "dev.thenexusgates.mobmapmarkers.MobMapMarkersPlugin"
 }

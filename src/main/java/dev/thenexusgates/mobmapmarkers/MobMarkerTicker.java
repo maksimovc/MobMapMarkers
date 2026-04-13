@@ -13,6 +13,7 @@ import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.server.npc.entities.NPCEntity;
+import com.hypixel.hytale.server.npc.role.Role;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -155,6 +156,12 @@ final class MobMarkerTicker {
             return null;
         }
 
+        Role role = npcEntity.getRole();
+        String nameTranslationKey = role != null ? role.getNameTranslationKey() : null;
+        if (nameTranslationKey == null || nameTranslationKey.isBlank()) {
+            nameTranslationKey = "server.npcRoles." + roleName + ".name";
+        }
+
         Ref ref = chunk.getReferenceTo(index);
         if (ref == null || !ref.isValid()) {
             return null;
@@ -174,7 +181,8 @@ final class MobMarkerTicker {
         return new MobMarkerManager.MobMarkerSnapshot(
                 String.valueOf(ref.getIndex()),
                 roleName,
-                formatRoleName(roleName),
+                nameTranslationKey,
+            MobMarkerNames.formatRoleName(roleName),
                 position,
                 rotation,
                 true);
@@ -202,26 +210,5 @@ final class MobMarkerTicker {
             LOGGER.warning("[MobMapMarkers] Failed to cache player positions for world "
                     + world.getName() + ": " + e.getMessage());
         }
-    }
-
-    private static String formatRoleName(String roleName) {
-        String[] parts = roleName.replace('-', '_').split("_");
-        StringBuilder builder = new StringBuilder();
-        for (String part : parts) {
-            if (part == null || part.isBlank()) {
-                continue;
-            }
-
-            if (!builder.isEmpty()) {
-                builder.append(' ');
-            }
-
-            builder.append(Character.toUpperCase(part.charAt(0)));
-            if (part.length() > 1) {
-                builder.append(part.substring(1).toLowerCase(java.util.Locale.ROOT));
-            }
-        }
-
-        return builder.isEmpty() ? "Mob" : builder.toString();
     }
 }

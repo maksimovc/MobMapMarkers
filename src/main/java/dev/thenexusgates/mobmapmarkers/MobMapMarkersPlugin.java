@@ -7,6 +7,7 @@ import com.hypixel.hytale.server.core.command.system.CommandSender;
 import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.worldmap.WorldMapManager;
@@ -14,12 +15,15 @@ import com.hypixel.hytale.server.core.universe.world.worldmap.WorldMapManager;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 
 public final class MobMapMarkersPlugin extends JavaPlugin {
 
     static final String PROVIDER_KEY = "mobMapMarkers";
-    private static final String VERSION = "1.5.0";
+    private static final String VERSION = "1.6.0";
 
     private static MobMapMarkersPlugin instance;
     private static MobMapMarkersConfig config;
@@ -27,7 +31,11 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
 
     private MobMarkerManager mobMarkerManager;
     private MobMarkerTicker mobMarkerTicker;
-    private SimpleMinimapOverlayService simpleMinimapOverlayService;
+    private FastMiniMapCompatService fastMiniMapCompatService;
+    private MobMarkerFilterStore filterStore;
+    private MobMarkerVisibilityService visibilityService;
+    private MobMapUiSounds uiSounds;
+    private ExecutorService uiWorker;
 
     public MobMapMarkersPlugin(JavaPluginInit init) {
         super(init);
@@ -42,6 +50,22 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         return config;
     }
 
+    MobMarkerManager getMobMarkerManager() {
+        return mobMarkerManager;
+    }
+
+    MobMarkerFilterStore getFilterStore() {
+        return filterStore;
+    }
+
+    MobMarkerVisibilityService getVisibilityService() {
+        return visibilityService;
+    }
+
+    MobMapUiSounds getUiSounds() {
+        return uiSounds;
+    }
+
     static Player getActivePlayer(UUID playerUuid) {
         return playerUuid == null ? null : ACTIVE_PLAYERS.get(playerUuid);
     }
@@ -54,23 +78,30 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         LivePlayerTracker.register();
         config = MobMapMarkersConfig.load(
             MobMapAssetPack.getDataRoot().resolve("mobmapmarkers-config.json"));
-
-        boolean simpleMinimapCompat = SimpleMinimapCompat.isEnabled(config);
-        if (config.showMobMarkersOnSimpleMinimap) {
-            getLogger().at(Level.INFO).log(simpleMinimapCompat
-                    ? "[MobMapMarkers] SimpleMinimap direct HUD integration enabled."
-                    : "[MobMapMarkers] SimpleMinimap compatibility requested, but SimpleMinimap was not detected.");
-        }
+        filterStore = new MobMarkerFilterStore(MobMapAssetPack.getDataRoot());
+        visibilityService = new MobMarkerVisibilityService(filterStore, MobMapMarkersPlugin::getConfig);
+        uiSounds = new MobMapUiSounds();
+        uiWorker = Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "MobMapMarkers-UI");
+            thread.setDaemon(true);
+            return thread;
+        });
 
         MobMapAssetPack.refreshFallbackIcons(config.mobMarkerSize, config.mobIconContentScalePercent);
 
         mobMarkerManager = new MobMarkerManager();
         mobMarkerTicker = new MobMarkerTicker(mobMarkerManager, config.scanIntervalMs);
         mobMarkerTicker.start();
-        if (simpleMinimapCompat) {
-            simpleMinimapOverlayService = new SimpleMinimapOverlayService(mobMarkerManager);
-            simpleMinimapOverlayService.start();
+        if (FastMiniMapCompat.isAvailable()) {
+            fastMiniMapCompatService = new FastMiniMapCompatService(mobMarkerManager, visibilityService);
+            fastMiniMapCompatService.register();
+            getLogger().at(Level.INFO).log("[MobMapMarkers] FastMiniMap mob overlay enabled.");
         }
+        runUiTask(() -> {
+            HytaleNpcPortraitResolver.prewarm();
+            MobArchiveIndex.prewarm();
+        });
+        getCommandRegistry().registerCommand(new MobMapFiltersCommand(this));
 
         Universe universe = Universe.get();
         if (universe != null) {
@@ -95,6 +126,7 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
             UUID playerUuid = ((CommandSender) player).getUuid();
             if (playerUuid != null) {
                 ACTIVE_PLAYERS.put(playerUuid, player);
+                filterStore.preload(playerUuid);
             }
         });
 
@@ -102,11 +134,9 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
             UUID uuid = event.getPlayerRef() != null ? event.getPlayerRef().getUuid() : null;
             if (uuid != null) {
                 ACTIVE_PLAYERS.remove(uuid);
+                filterStore.unload(uuid);
                 LivePlayerTracker.remove(uuid);
                 MobMapAssetPack.clearViewer(uuid);
-                if (simpleMinimapOverlayService != null) {
-                    simpleMinimapOverlayService.removeViewer(uuid);
-                }
             }
         });
 
@@ -115,9 +145,9 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
 
     @Override
     protected void shutdown() {
-        if (simpleMinimapOverlayService != null) {
-            simpleMinimapOverlayService.shutdown();
-            simpleMinimapOverlayService = null;
+        if (fastMiniMapCompatService != null) {
+            fastMiniMapCompatService.unregister();
+            fastMiniMapCompatService = null;
         }
 
         if (mobMarkerTicker != null) {
@@ -128,9 +158,52 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         ACTIVE_PLAYERS.clear();
         LivePlayerTracker.shutdown();
         MobMapAssetPack.shutdown();
+        if (uiWorker != null) {
+            uiWorker.shutdownNow();
+            uiWorker = null;
+        }
         mobMarkerManager = null;
+        filterStore = null;
+        visibilityService = null;
+        uiSounds = null;
         config = null;
         getLogger().at(Level.INFO).log("[MobMapMarkers] Stopped.");
+    }
+
+    void openFilters(com.hypixel.hytale.component.Store<com.hypixel.hytale.server.core.universe.world.storage.EntityStore> store,
+                     com.hypixel.hytale.component.Ref<com.hypixel.hytale.server.core.universe.world.storage.EntityStore> entityRef,
+                     PlayerRef playerRef) {
+        if (store == null || entityRef == null || playerRef == null) {
+            return;
+        }
+        if (!MobMapPermissions.canOpenUi(playerRef)) {
+            MobMapPermissions.sendDenied(playerRef);
+            return;
+        }
+
+        Player player = store.getComponent(entityRef, Player.getComponentType());
+        if (player == null) {
+            return;
+        }
+
+        uiSounds.play(playerRef, MobMapUiSounds.Cue.NAVIGATE);
+        player.getPageManager().openCustomPage(entityRef, store, new MobMapFiltersPage(playerRef, this));
+    }
+
+    void runUiTask(Runnable runnable) {
+        if (runnable == null) {
+            return;
+        }
+
+        ExecutorService worker = uiWorker;
+        if (worker == null) {
+            return;
+        }
+
+        try {
+            worker.execute(runnable);
+        } catch (RejectedExecutionException ignored) {
+        }
     }
 
     private void registerProvider(World world) {
@@ -141,7 +214,7 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
 
         Map<String, WorldMapManager.MarkerProvider> providers = worldMapManager.getMarkerProviders();
         if (providers == null || !(providers.get(PROVIDER_KEY) instanceof MobMarkerProvider)) {
-            installProvider(worldMapManager, PROVIDER_KEY, new MobMarkerProvider(mobMarkerManager));
+            installProvider(worldMapManager, PROVIDER_KEY, new MobMarkerProvider(mobMarkerManager, visibilityService));
             getLogger().at(Level.INFO).log("[MobMapMarkers] Provider registered: " + world.getName());
         }
     }

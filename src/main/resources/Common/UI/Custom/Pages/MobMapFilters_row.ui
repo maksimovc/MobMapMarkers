@@ -1,0 +1,78 @@
+Group {
+  Anchor: (Height: 92, Bottom: 8);
+  Background: #171d29;
+  OutlineColor: #566278;
+  OutlineSize: 1;
+
+  Group #RowAccent {
+    Anchor: (Left: 0, Top: 0, Bottom: 0, Width: 4);
+    Background: #6f86a8;
+  }
+
+  Group {
+    Anchor: (Left: 4, Top: 0, Right: 0, Bottom: 0);
+    Padding: (Top: 12, Bottom: 12, Left: 10, Right: 14);
+
+    Group {
+      Anchor: (Left: 10, Top: 10, Width: 60, Height: 60);
+      Background: #202636;
+      OutlineColor: #58657a;
+      OutlineSize: 1;
+      Padding: (Left: 4, Right: 4, Top: 4, Bottom: 4);
+
+      AssetImage #MobIcon {
+        Anchor: (Full: 0);
+        Visible: false;
+      }
+    }
+
+    Label #MobName {
+      Anchor: (Top: 13, Left: 84, Right: 388, Height: 20);
+      Style: (FontSize: 16, TextColor: #e7edf7, RenderBold: true, VerticalAlignment: Center);
+      Text: "Mob";
+    }
+
+    Label #MobKey {
+      Anchor: (Top: 39, Left: 84, Right: 388, Height: 16);
+      Style: (FontSize: 11, TextColor: #8f96ab, VerticalAlignment: Center);
+      Text: "role_name";
+    }
+
+    Button #MapToggleButton {
+      Anchor: (Top: 19, Right: 268, Width: 120, Height: 40);
+      Background: #35455f;
+      OutlineColor: #c7b37b;
+      OutlineSize: 1;
+      Label #MapToggleButtonLabel {
+        Anchor: (Full: 0);
+        Text: "Map: On";
+        Style: (FontSize: 13, TextColor: #f1f7fa, RenderBold: true, HorizontalAlignment: Center, VerticalAlignment: Center);
+      }
+    }
+
+    Button #MinimapToggleButton {
+      Anchor: (Top: 19, Right: 140, Width: 120, Height: 40);
+      Background: #35455f;
+      OutlineColor: #c7b37b;
+      OutlineSize: 1;
+      Label #MinimapToggleButtonLabel {
+        Anchor: (Full: 0);
+        Text: "Minimap: On";
+        Style: (FontSize: 13, TextColor: #f1f7fa, RenderBold: true, HorizontalAlignment: Center, VerticalAlignment: Center);
+      }
+    }
+
+    Button #CompassToggleButton {
+      Anchor: (Top: 19, Right: 12, Width: 120, Height: 40);
+      Background: #4a3940;
+      OutlineColor: #c7b37b;
+      OutlineSize: 1;
+      Label #CompassToggleButtonLabel {
+        Anchor: (Full: 0);
+        Text: "Compass: Off";
+        Style: (FontSize: 13, TextColor: #f1f7fa, RenderBold: true, HorizontalAlignment: Center, VerticalAlignment: Center);
+      }
+    }
+
+  }
+}

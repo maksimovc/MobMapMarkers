@@ -2,16 +2,9 @@ package dev.thenexusgates.mobmapmarkers;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Enumeration;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -35,21 +28,12 @@ final class HytaleNpcPortraitResolver {
     private static final AtomicBoolean INDEXED = new AtomicBoolean(false);
     private static final AtomicBoolean MISSING_ASSETS_ZIP_LOGGED = new AtomicBoolean(false);
 
-    private static final Map<String, List<String>> ROLE_ALIASES = Map.ofEntries(
-            Map.entry("Mosshorn_Plain", List.of("Mosshorn")),
-            Map.entry("Bunny", List.of("Bunny", "Rabbit")),
-            Map.entry("Rabbit", List.of("Rabbit", "Bunny"))
-    );
-
-    private static final Set<String> LEADING_PREFIXES = Set.of(
-            "Temple", "Tamed", "Friendly", "Passive", "Companion", "Summoned");
-    private static final Set<String> TRAILING_SUFFIXES = Set.of(
-            "Wander", "Wandering", "Patrol", "Static", "Friendly", "Passive", "Alerted", "Sleeping");
-
-    private static volatile Path assetsZipPath;
-
     private HytaleNpcPortraitResolver() {
     }
+
+        static void prewarm() {
+        ensureIndexed();
+        }
 
     static String resolvePortraitName(String roleName) {
         String entryName = resolveEntryName(roleName);
@@ -71,7 +55,7 @@ final class HytaleNpcPortraitResolver {
         }
 
         String entryName = MEMORIES_PREFIX + portraitName + PNG_SUFFIX;
-        Path zipPath = resolveAssetsZipPath();
+        Path zipPath = HytaleInstallLocator.resolveAssetsZipPath();
         if (zipPath == null) {
             return null;
         }
@@ -130,7 +114,7 @@ final class HytaleNpcPortraitResolver {
             }
         }
 
-        String bestMatch = findBestFuzzyPortrait(roleName);
+        String bestMatch = MobPortraitMatcher.findBestFuzzyPortrait(roleName, AVAILABLE_PORTRAITS, TOKENS_BY_PORTRAIT);
         if (bestMatch != null) {
             return MEMORIES_PREFIX + bestMatch + PNG_SUFFIX;
         }
@@ -139,145 +123,23 @@ final class HytaleNpcPortraitResolver {
     }
 
     private static List<String> buildCandidates(String roleName) {
-        String normalized = normalizeRole(roleName);
-        LinkedHashSet<String> candidates = new LinkedHashSet<>();
-        candidates.add(normalized);
-
-        List<String> aliases = ROLE_ALIASES.get(normalized);
-        if (aliases != null) {
-            candidates.addAll(aliases);
-        }
-
-        List<String> parts = new ArrayList<>(Arrays.asList(normalized.split("_")));
-        while (!parts.isEmpty() && LEADING_PREFIXES.contains(parts.get(0))) {
-            parts.remove(0);
-            if (!parts.isEmpty()) {
-                candidates.add(String.join("_", parts));
-            }
-        }
-
-        parts = new ArrayList<>(Arrays.asList(normalized.split("_")));
-        while (!parts.isEmpty() && TRAILING_SUFFIXES.contains(parts.get(parts.size() - 1))) {
-            parts.remove(parts.size() - 1);
-            if (!parts.isEmpty()) {
-                candidates.add(String.join("_", parts));
-            }
-        }
-
-        if (normalized.endsWith("_Plain")) {
-            candidates.add(normalized.substring(0, normalized.length() - "_Plain".length()));
-        }
-
-        if (normalized.startsWith("Wolf_")) {
-            candidates.add("Wolf_Black");
-            candidates.add("Wolf_White");
-        }
-
-        if (normalized.startsWith("Pig_") && normalized.contains("Boar")) {
-            candidates.add("Pig_Wild");
-            candidates.add("Pig_Wild_Piglet");
-        }
-
-        String[] normalizedParts = normalized.split("_");
-        if (normalizedParts.length > 1) {
-            for (int start = 1; start < normalizedParts.length; start++) {
-                candidates.add(String.join("_", Arrays.copyOfRange(normalizedParts, start, normalizedParts.length)));
-            }
-            for (int end = normalizedParts.length - 1; end > 0; end--) {
-                candidates.add(String.join("_", Arrays.copyOfRange(normalizedParts, 0, end)));
-            }
-        }
-
-        return List.copyOf(candidates);
+        return MobPortraitMatcher.buildCandidates(roleName);
     }
 
     private static String findBestFuzzyPortrait(String roleName) {
-        List<String> roleTokens = normalizedTokens(normalizeRole(roleName));
-        if (roleTokens.isEmpty()) {
-            return null;
-        }
-
-        int bestScore = Integer.MIN_VALUE;
-        String bestPortrait = null;
-        for (String portraitName : AVAILABLE_PORTRAITS) {
-            List<String> portraitTokens = TOKENS_BY_PORTRAIT.get(portraitName);
-            if (portraitTokens == null || portraitTokens.isEmpty()) {
-                continue;
-            }
-
-            int score = scorePortraitMatch(roleTokens, portraitTokens, portraitName);
-            if (score > bestScore) {
-                bestScore = score;
-                bestPortrait = portraitName;
-            }
-        }
-
-        return bestScore >= 8 ? bestPortrait : null;
+        return MobPortraitMatcher.findBestFuzzyPortrait(roleName, AVAILABLE_PORTRAITS, TOKENS_BY_PORTRAIT);
     }
 
     private static int scorePortraitMatch(List<String> roleTokens, List<String> portraitTokens, String portraitName) {
-        int overlap = 0;
-        Map<String, Integer> portraitCounts = new HashMap<>();
-        for (String token : portraitTokens) {
-            portraitCounts.merge(token, 1, Integer::sum);
-        }
-
-        for (String token : roleTokens) {
-            Integer count = portraitCounts.get(token);
-            if (count != null && count > 0) {
-                overlap++;
-                portraitCounts.put(token, count - 1);
-            }
-        }
-
-        if (overlap == 0) {
-            return Integer.MIN_VALUE;
-        }
-
-        int score = overlap * 10;
-        int roleRemainder = roleTokens.size() - overlap;
-        int portraitRemainder = portraitTokens.size() - overlap;
-        score -= roleRemainder * 3;
-        score -= portraitRemainder * 2;
-
-        String normalizedRole = normalizeRole(String.join("_", roleTokens));
-        if (portraitName.equals(normalizedRole)) {
-            score += 50;
-        } else if (portraitName.endsWith(normalizedRole) || normalizedRole.endsWith(portraitName)) {
-            score += 20;
-        }
-
-        return score;
+        return MobPortraitMatcher.scorePortraitMatch(roleTokens, portraitTokens, portraitName);
     }
 
     private static List<String> normalizedTokens(String name) {
-        List<String> tokens = new ArrayList<>();
-        for (String token : name.split("_")) {
-            if (token == null || token.isBlank()) {
-                continue;
-            }
-
-            if (LEADING_PREFIXES.contains(token) || TRAILING_SUFFIXES.contains(token)) {
-                continue;
-            }
-
-            tokens.add(token.toLowerCase(Locale.ROOT));
-        }
-        return List.copyOf(tokens);
+        return MobPortraitMatcher.normalizedTokens(name);
     }
 
     private static String normalizeRole(String roleName) {
-        String[] rawParts = roleName.replace('-', '_').split("_");
-        List<String> parts = new ArrayList<>();
-        for (String rawPart : rawParts) {
-            if (rawPart == null || rawPart.isBlank()) {
-                continue;
-            }
-
-            String part = rawPart.toLowerCase(Locale.ROOT);
-            parts.add(Character.toUpperCase(part.charAt(0)) + part.substring(1));
-        }
-        return String.join("_", parts);
+        return MobPortraitMatcher.normalizeRole(roleName);
     }
 
     private static void ensureIndexed() {
@@ -285,7 +147,7 @@ final class HytaleNpcPortraitResolver {
             return;
         }
 
-        Path zipPath = resolveAssetsZipPath();
+        Path zipPath = HytaleInstallLocator.resolveAssetsZipPath();
         if (zipPath == null) {
             return;
         }
@@ -306,7 +168,7 @@ final class HytaleNpcPortraitResolver {
                 String portraitName = name.substring(MEMORIES_PREFIX.length(), name.length() - PNG_SUFFIX.length());
                 if (!portraitName.isBlank()) {
                     AVAILABLE_PORTRAITS.add(portraitName);
-                    TOKENS_BY_PORTRAIT.put(portraitName, normalizedTokens(portraitName));
+                    TOKENS_BY_PORTRAIT.put(portraitName, MobPortraitMatcher.normalizedTokens(portraitName));
                 }
             }
 
@@ -317,41 +179,14 @@ final class HytaleNpcPortraitResolver {
     }
 
     private static Path resolveAssetsZipPath() {
-        Path cached = assetsZipPath;
-        if (cached != null && Files.exists(cached)) {
-            return cached;
-        }
-
-        for (Path candidate : buildAssetsZipCandidates()) {
-            if (candidate != null && Files.exists(candidate)) {
-                assetsZipPath = candidate;
-                return candidate;
-            }
+        Path zipPath = HytaleInstallLocator.resolveAssetsZipPath();
+        if (zipPath != null) {
+            return zipPath;
         }
 
         if (MISSING_ASSETS_ZIP_LOGGED.compareAndSet(false, true)) {
             LOGGER.warning("[MobMapMarkers] Could not locate Hytale Assets.zip for official NPC portraits; generated fallback icons will be used.");
         }
         return null;
-    }
-
-    private static List<Path> buildAssetsZipCandidates() {
-        LinkedHashSet<Path> candidates = new LinkedHashSet<>();
-        Path cwd = Paths.get("").toAbsolutePath().normalize();
-        candidates.add(cwd.resolve("Assets.zip"));
-
-        String userDir = System.getProperty("user.dir");
-        if (userDir != null && !userDir.isBlank()) {
-            Path userDirPath = Paths.get(userDir).toAbsolutePath().normalize();
-            candidates.add(userDirPath.resolve("Assets.zip"));
-            for (Path path = userDirPath; path != null; path = path.getParent()) {
-                candidates.add(path.resolve("Assets.zip"));
-                candidates.add(path.resolve("install/release/package/game/latest/Assets.zip"));
-                candidates.add(path.resolve("release/package/game/latest/Assets.zip"));
-                candidates.add(path.resolve("game/latest/Assets.zip"));
-            }
-        }
-
-        return List.copyOf(candidates);
     }
 }

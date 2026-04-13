@@ -3,20 +3,15 @@ import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.api.tasks.testing.Test
-import org.gradle.api.tasks.SourceSetContainer
 
 plugins {
     java
 }
 
 group = "dev.thenexusgates"
-version = "1.5.0"
+version = "1.6.0"
 
-val simpleMinimapJar = layout.projectDirectory.file("../../OtherMapMods/SimpleMinimap-8.4.0.jar").asFile
-val forceSimpleMinimapStubs = providers.gradleProperty("mobMapMarkers.useSimpleMinimapStubs")
-    .map(String::toBoolean)
-    .orElse(false)
-val useSimpleMinimapJar = !forceSimpleMinimapStubs.get() && simpleMinimapJar.exists()
+val fastMiniMapJar = layout.projectDirectory.file("../FastMiniMap/build/libs/FastMiniMap-1.1.0.jar").asFile
 
 repositories {
     mavenCentral()
@@ -29,19 +24,11 @@ extensions.configure<JavaPluginExtension> {
     }
 }
 
-extensions.configure<SourceSetContainer>("sourceSets") {
-    named("main") {
-        if (!useSimpleMinimapJar) {
-            java.srcDir("src/simpleminimap-stubs/java")
-        }
-    }
-}
-
 dependencies {
     add("compileOnly", "com.hypixel.hytale:Server:+")
     add("testImplementation", "com.hypixel.hytale:Server:+")
-    if (useSimpleMinimapJar) {
-        add("compileOnly", files(simpleMinimapJar))
+    if (fastMiniMapJar.exists()) {
+        add("compileOnly", files(fastMiniMapJar))
     }
 
     add("testImplementation", platform("org.junit:junit-bom:5.12.2"))
@@ -60,5 +47,4 @@ tasks.withType<Test>().configureEach {
 tasks.jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     archiveFileName.set("MobMapMarkers-${version}.jar")
-    exclude("com/Landscaper/**")
 }

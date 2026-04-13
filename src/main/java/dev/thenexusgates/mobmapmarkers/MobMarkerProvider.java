@@ -3,6 +3,7 @@ package dev.thenexusgates.mobmapmarkers;
 import com.hypixel.hytale.math.vector.Transform;
 import com.hypixel.hytale.math.vector.Vector3d;
 import com.hypixel.hytale.math.vector.Vector3f;
+import com.hypixel.hytale.protocol.FormattedMessage;
 import com.hypixel.hytale.protocol.packets.worldmap.MapMarker;
 import com.hypixel.hytale.server.core.command.system.CommandSender;
 import com.hypixel.hytale.server.core.entity.entities.Player;
@@ -22,12 +23,13 @@ import java.util.logging.Logger;
 final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
 
     private static final Logger LOGGER = Logger.getLogger(MobMarkerProvider.class.getName());
-    private static final String MARKER_PREFIX = "MobMapMarker-";
 
     private final MobMarkerManager manager;
+    private final MobMarkerVisibilityService visibilityService;
 
-    MobMarkerProvider(MobMarkerManager manager) {
+    MobMarkerProvider(MobMarkerManager manager, MobMarkerVisibilityService visibilityService) {
         this.manager = manager;
+        this.visibilityService = visibilityService;
     }
 
     @Override
@@ -41,12 +43,10 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
             return;
         }
 
-        if (!config.showMobMarkersOnCompass && !MobMapMarkerSupport.isWorldMapVisible(viewer)) {
-            return;
-        }
-
         String worldName = world.getName();
         UUID viewerUuid = ((CommandSender) viewer).getUuid();
+        boolean worldMapVisible = MobMapMarkerSupport.isWorldMapVisible(viewer);
+        MobMarkerSurface surface = worldMapVisible ? MobMarkerSurface.MAP : MobMarkerSurface.COMPASS;
         Vector3d viewerPosition = manager.getPlayerPosition(worldName, viewerUuid);
         if (viewerPosition == null) {
             viewerPosition = findViewerPosition(world.getPlayerRefs(), viewerUuid);
@@ -59,6 +59,9 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
         List<MarkerCandidate> candidates = new ArrayList<>();
         for (MobMarkerManager.MobMarkerSnapshot snapshot : manager.getMobData(worldName)) {
             if (snapshot == null || snapshot.position() == null) {
+                continue;
+            }
+            if (!visibilityService.isVisible(viewerUuid, snapshot, surface)) {
                 continue;
             }
 
@@ -77,14 +80,21 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                 ? Math.min(config.maxVisibleMobMarkers, candidates.size())
                 : candidates.size();
         List<String> imagePathsToDeliver = new ArrayList<>();
+        PlayerRef viewerRef = findViewerRef(world.getPlayerRefs(), viewerUuid);
+        String viewerLanguage = viewerRef != null ? viewerRef.getLanguage() : null;
 
         for (int index = 0; index < limit; index++) {
             MarkerCandidate candidate = candidates.get(index);
             MobMarkerManager.MobMarkerSnapshot snapshot = candidate.snapshot();
-            try {
+                try {
+                String localizedDisplayName = MobNameLocalization.resolveDisplayName(
+                    snapshot.nameTranslationKey(),
+                    snapshot.displayName(),
+                    viewerLanguage);
                 String markerImage = MobMapAssetPack.ensureMobIcon(
                         snapshot.roleName(),
-                        snapshot.displayName(),
+                    localizedDisplayName,
+                    MobNameLocalization.buildAssetLocaleKey(snapshot.nameTranslationKey(), viewerLanguage, localizedDisplayName),
                         config.mobMarkerSize,
                         config.mobIconContentScalePercent,
                         snapshot.facingRight(),
@@ -94,15 +104,16 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                 }
                 imagePathsToDeliver.add(markerImage);
 
-                String label = buildLabel(
-                        snapshot.displayName(),
+                FormattedMessage label = MobMapMarkerSupport.createMarkerLabel(
+                        localizedDisplayName,
+                        viewerLanguage,
                         config.showMobNames,
                         config.showDistance,
                         candidate.distanceSquared(),
                         viewerPosition != null);
                 Transform transform = new Transform(new Vector3d(snapshot.position()), Vector3f.ZERO);
                 MapMarker marker = MobMapMarkerSupport.createPlainMarker(
-                        MARKER_PREFIX + snapshot.id(),
+                    MobMapMarkerSupport.MARKER_PREFIX + snapshot.id(),
                         label,
                         markerImage,
                         transform);
@@ -113,28 +124,9 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
             }
         }
 
-        PlayerRef viewerRef = findViewerRef(world.getPlayerRefs(), viewerUuid);
         if (viewerRef != null && !imagePathsToDeliver.isEmpty()) {
             MobMapAssetPack.deliverAssetsToViewer(viewerRef, imagePathsToDeliver);
         }
-    }
-
-    private static String buildLabel(String displayName, boolean showMobNames, boolean showDistance,
-                                     double distanceSquared, boolean includeDistance) {
-        if (!showMobNames && !showDistance) {
-            return null;
-        }
-
-        String safeName = displayName != null && !displayName.isBlank() ? displayName : "Mob";
-        if (!includeDistance || !showDistance) {
-            return showMobNames ? safeName : null;
-        }
-
-        int distance = (int) Math.sqrt(distanceSquared);
-        if (showMobNames) {
-            return safeName + " (" + distance + "m)";
-        }
-        return distance + "m";
     }
 
     private static Vector3d findViewerPosition(Collection<PlayerRef> playerRefs, UUID viewerUuid) {
