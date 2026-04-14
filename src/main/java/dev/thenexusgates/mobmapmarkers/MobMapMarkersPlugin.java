@@ -12,6 +12,11 @@ import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.worldmap.WorldMapManager;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -74,7 +79,8 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
     protected void setup() {
         getLogger().at(Level.INFO).log("[MobMapMarkers] Starting v" + VERSION);
 
-        MobMapAssetPack.init(getDataDirectory());
+        Path dataDirectory = resolveDataDirectory();
+        MobMapAssetPack.init(dataDirectory);
         LivePlayerTracker.register();
         config = MobMapMarkersConfig.load(
             MobMapAssetPack.getDataRoot().resolve("mobmapmarkers-config.json"));
@@ -230,5 +236,68 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         }
 
         worldMapManager.addMarkerProvider(key, provider);
+    }
+
+    private Path resolveDataDirectory() {
+        Path legacyDataDirectory = getDataDirectory();
+        if (legacyDataDirectory == null) {
+            throw new IllegalStateException("MobMapMarkers data directory is unavailable");
+        }
+
+        Path quietDataDirectory = resolveQuietDataDirectory(legacyDataDirectory, "MobMapMarkers");
+        migrateLegacyDataDirectory(legacyDataDirectory, quietDataDirectory);
+        return quietDataDirectory;
+    }
+
+    private Path resolveQuietDataDirectory(Path legacyDataDirectory, String directoryName) {
+        Path modsDirectory = legacyDataDirectory.getParent();
+        if (modsDirectory == null || modsDirectory.getFileName() == null
+                || !"mods".equalsIgnoreCase(modsDirectory.getFileName().toString())) {
+            return legacyDataDirectory;
+        }
+
+        Path worldRoot = modsDirectory.getParent();
+        if (worldRoot == null) {
+            return legacyDataDirectory;
+        }
+
+        return worldRoot.resolve("plugins").resolve(directoryName);
+    }
+
+    private void migrateLegacyDataDirectory(Path legacyDataDirectory, Path quietDataDirectory) {
+        if (legacyDataDirectory == null || quietDataDirectory == null || legacyDataDirectory.equals(quietDataDirectory)) {
+            return;
+        }
+
+        try {
+            if (!Files.exists(legacyDataDirectory)) {
+                Files.createDirectories(quietDataDirectory);
+                return;
+            }
+
+            Files.createDirectories(quietDataDirectory);
+            try (var stream = Files.walk(legacyDataDirectory)) {
+                for (Path source : (Iterable<Path>) stream::iterator) {
+                    Path relative = legacyDataDirectory.relativize(source);
+                    Path target = quietDataDirectory.resolve(relative);
+                    if (Files.isDirectory(source)) {
+                        Files.createDirectories(target);
+                    } else {
+                        Files.createDirectories(target.getParent());
+                        Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            }
+            try (var cleanup = Files.walk(legacyDataDirectory).sorted(Comparator.reverseOrder())) {
+                cleanup.forEach(path -> {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException ignored) {
+                    }
+                });
+            }
+        } catch (IOException exception) {
+            getLogger().at(Level.WARNING).log("[MobMapMarkers] Failed to migrate legacy data directory: " + exception.getMessage());
+        }
     }
 }

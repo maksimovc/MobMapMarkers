@@ -15,7 +15,9 @@ import com.hypixel.hytale.server.core.universe.world.worldmap.markers.MarkersCol
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -79,22 +81,26 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
         int limit = config.maxVisibleMobMarkers > 0
                 ? Math.min(config.maxVisibleMobMarkers, candidates.size())
                 : candidates.size();
-        List<String> imagePathsToDeliver = new ArrayList<>();
         PlayerRef viewerRef = findViewerRef(world.getPlayerRefs(), viewerUuid);
+        if (viewerRef == null || viewerRef.getUuid() == null) {
+            return;
+        }
         String viewerLanguage = viewerRef != null ? viewerRef.getLanguage() : null;
+        List<BuiltMarker> builtMarkers = new ArrayList<>();
+        Set<String> missingImagePaths = new LinkedHashSet<>();
 
         for (int index = 0; index < limit; index++) {
             MarkerCandidate candidate = candidates.get(index);
             MobMarkerManager.MobMarkerSnapshot snapshot = candidate.snapshot();
-                try {
+            try {
                 String localizedDisplayName = MobNameLocalization.resolveDisplayName(
-                    snapshot.nameTranslationKey(),
-                    snapshot.displayName(),
-                    viewerLanguage);
+                        snapshot.nameTranslationKey(),
+                        snapshot.displayName(),
+                        viewerLanguage);
                 String markerImage = MobMapAssetPack.ensureMobIcon(
                         snapshot.roleName(),
-                    localizedDisplayName,
-                    MobNameLocalization.buildAssetLocaleKey(snapshot.nameTranslationKey(), viewerLanguage, localizedDisplayName),
+                        localizedDisplayName,
+                        MobNameLocalization.buildAssetLocaleKey(snapshot.nameTranslationKey(), viewerLanguage, localizedDisplayName),
                         config.mobMarkerSize,
                         config.mobIconContentScalePercent,
                         snapshot.facingRight(),
@@ -102,7 +108,10 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                 if (markerImage == null) {
                     continue;
                 }
-                imagePathsToDeliver.add(markerImage);
+                boolean assetReady = MobMapAssetPack.hasDeliveredAsset(viewerRef.getUuid(), markerImage);
+                if (!assetReady) {
+                    missingImagePaths.add(markerImage);
+                }
 
                 FormattedMessage label = MobMapMarkerSupport.createMarkerLabel(
                         localizedDisplayName,
@@ -113,19 +122,26 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                         viewerPosition != null);
                 Transform transform = new Transform(new Vector3d(snapshot.position()), Vector3f.ZERO);
                 MapMarker marker = MobMapMarkerSupport.createPlainMarker(
-                    MobMapMarkerSupport.MARKER_PREFIX + snapshot.id(),
+                        MobMapMarkerSupport.MARKER_PREFIX + snapshot.id(),
                         label,
                         markerImage,
                         transform);
-                collector.add(marker);
+                builtMarkers.add(new BuiltMarker(marker, assetReady));
             } catch (RuntimeException e) {
                 LOGGER.log(Level.WARNING, "[MobMapMarkers] Mob marker build failed for snapshot "
                         + snapshot.id() + " in world " + worldName, e);
             }
         }
 
-        if (viewerRef != null && !imagePathsToDeliver.isEmpty()) {
-            MobMapAssetPack.deliverAssetsToViewer(viewerRef, imagePathsToDeliver);
+        if (!missingImagePaths.isEmpty()) {
+            MobMapAssetPack.deliverAssetsToViewer(viewerRef, missingImagePaths);
+        }
+
+        for (BuiltMarker builtMarker : builtMarkers) {
+            if (!builtMarker.assetReady()) {
+                continue;
+            }
+            collector.add(builtMarker.marker());
         }
     }
 
@@ -170,5 +186,8 @@ final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
     }
 
     private record MarkerCandidate(MobMarkerManager.MobMarkerSnapshot snapshot, double distanceSquared) {
+    }
+
+    private record BuiltMarker(MapMarker marker, boolean assetReady) {
     }
 }

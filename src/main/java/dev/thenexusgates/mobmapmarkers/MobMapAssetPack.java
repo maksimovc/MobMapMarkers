@@ -182,6 +182,20 @@ final class MobMapAssetPack {
         deliverAssetsToViewer(viewer, List.of(imagePath));
     }
 
+    static boolean hasDeliveredAsset(UUID viewerUuid, String imagePath) {
+        if (viewerUuid == null || imagePath == null || imagePath.isBlank()) {
+            return false;
+        }
+
+        Set<String> deliveredAssets = DELIVERED_BY_VIEWER.get(viewerUuid);
+        if (deliveredAssets == null || deliveredAssets.isEmpty()) {
+            return false;
+        }
+
+        String assetPath = toUiAssetPath(imagePath);
+        return assetPath != null && deliveredAssets.contains(assetPath);
+    }
+
     static void deliverAssetsToViewer(PlayerRef viewer, Collection<String> imagePaths) {
         if (viewer == null || imagePaths == null || imagePaths.isEmpty()) {
             return;
