@@ -19,11 +19,12 @@ Shows nearby mobs as icon markers on the world map (M key) and optionally on the
 
 ## Configuration
 
-Config path: `UserData/Saves/<World>/mods/MobMapMarkersAssets/mobmapmarkers-config.json`
+Config path: `UserData/Saves/<World>/mods/thenexusgates_MobMapMarkers/mobmapmarkers-config.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `enableMobMarkers` | `true` | Enable/disable all mob markers |
+| `enableMobMapCommand` | `true` | Allow players to open the `/mobmap` GUI; set to `false` to disable the GUI entirely |
 | `showMobNames` | `true` | Show mob name below icon |
 | `showDistance` | `true` | Show distance to mob on marker |
 | `showMobMarkersOnCompass` | `false` | Also show markers during compass-only updates |
@@ -32,30 +33,26 @@ Config path: `UserData/Saves/<World>/mods/MobMapMarkersAssets/mobmapmarkers-conf
 | `mobIconContentScalePercent` | `96` | How much of the marker slot the portrait fills |
 | `maxVisibleMobMarkers` | `128` | Nearest-first cap on visible markers |
 | `scanIntervalMs` | `1000` | How often mobs are scanned (ms) |
-| `prewarmOfficialIcons` | `true` | Pre-render official portraits on startup |
 | `renderUnknownMobFallbacks` | `true` | Generate icons for unknown mob types |
 
 ## Commands
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `/mobmap` | `/mobmarkers` | Open the per-player mob filter UI |
-| `/mobmap filters` | — | Same as above |
+| `/mobmap` | — | Open the per-player mob filter UI |
 
 ## Permissions
 
 | Permission | Description |
 |------------|-------------|
-| `mobmapmarkers.use` | Open the filter UI (`/mobmap`). Grant to all players. |
 | `mobmapmarkers.filters.map` | Edit world-map visibility filters |
 | `mobmapmarkers.filters.minimap` | Edit minimap visibility filters |
 | `mobmapmarkers.filters.compass` | Edit compass visibility filters |
 | `mobmapmarkers.filters.bulk.map` | Bulk-toggle all mobs on the world map |
 | `mobmapmarkers.filters.bulk.minimap` | Bulk-toggle all mobs on the minimap |
 | `mobmapmarkers.filters.bulk.compass` | Bulk-toggle all mobs on the compass |
-| `mobmapmarkers.admin` | Admin-level access (reserved for future use) |
 
-> By default all permissions are **op-only**. Grant `mobmapmarkers.use` and the relevant `filters.*` nodes to let regular players manage their own filters.
+> `/mobmap` is available to everyone by default. Use the `filters.*` and `filters.bulk.*` nodes to control who can actually change visibility inside the GUI.
 
 ## Compatibility
 

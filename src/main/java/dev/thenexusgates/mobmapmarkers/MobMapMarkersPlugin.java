@@ -11,6 +11,22 @@ import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.worldmap.WorldMapManager;
+import dev.thenexusgates.mobmapmarkers.asset.MobMapAssetPack;
+import dev.thenexusgates.mobmapmarkers.catalog.HytaleNpcPortraitResolver;
+import dev.thenexusgates.mobmapmarkers.catalog.MobArchiveIndex;
+import dev.thenexusgates.mobmapmarkers.command.MobMapFiltersCommand;
+import dev.thenexusgates.mobmapmarkers.compat.FastMiniMapCompat;
+import dev.thenexusgates.mobmapmarkers.compat.FastMiniMapCompatService;
+import dev.thenexusgates.mobmapmarkers.config.MobMapMarkersConfig;
+import dev.thenexusgates.mobmapmarkers.filter.MobMarkerFilterStore;
+import dev.thenexusgates.mobmapmarkers.marker.MobMarkerManager;
+import dev.thenexusgates.mobmapmarkers.marker.MobMarkerProvider;
+import dev.thenexusgates.mobmapmarkers.marker.MobMarkerTicker;
+import dev.thenexusgates.mobmapmarkers.marker.MobMarkerVisibilityService;
+import dev.thenexusgates.mobmapmarkers.security.MobMapPermissions;
+import dev.thenexusgates.mobmapmarkers.tracking.LivePlayerTracker;
+import dev.thenexusgates.mobmapmarkers.ui.MobMapFiltersPage;
+import dev.thenexusgates.mobmapmarkers.ui.MobMapUiSounds;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -55,19 +71,23 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         return config;
     }
 
-    MobMarkerManager getMobMarkerManager() {
+    public static boolean isMobMapCommandEnabled() {
+        return config == null || config.enableMobMapCommand;
+    }
+
+    public MobMarkerManager getMobMarkerManager() {
         return mobMarkerManager;
     }
 
-    MobMarkerFilterStore getFilterStore() {
+    public MobMarkerFilterStore getFilterStore() {
         return filterStore;
     }
 
-    MobMarkerVisibilityService getVisibilityService() {
+    public MobMarkerVisibilityService getVisibilityService() {
         return visibilityService;
     }
 
-    MobMapUiSounds getUiSounds() {
+    public MobMapUiSounds getUiSounds() {
         return uiSounds;
     }
 
@@ -101,7 +121,6 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         if (FastMiniMapCompat.isAvailable()) {
             fastMiniMapCompatService = new FastMiniMapCompatService(mobMarkerManager, visibilityService);
             fastMiniMapCompatService.register();
-            getLogger().at(Level.INFO).log("[MobMapMarkers] FastMiniMap mob overlay enabled.");
         }
         runUiTask(() -> {
             HytaleNpcPortraitResolver.prewarm();
@@ -173,17 +192,16 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         visibilityService = null;
         uiSounds = null;
         config = null;
-        getLogger().at(Level.INFO).log("[MobMapMarkers] Stopped.");
     }
 
-    void openFilters(com.hypixel.hytale.component.Store<com.hypixel.hytale.server.core.universe.world.storage.EntityStore> store,
-                     com.hypixel.hytale.component.Ref<com.hypixel.hytale.server.core.universe.world.storage.EntityStore> entityRef,
-                     PlayerRef playerRef) {
+    public void openFilters(com.hypixel.hytale.component.Store<com.hypixel.hytale.server.core.universe.world.storage.EntityStore> store,
+                            com.hypixel.hytale.component.Ref<com.hypixel.hytale.server.core.universe.world.storage.EntityStore> entityRef,
+                            PlayerRef playerRef) {
         if (store == null || entityRef == null || playerRef == null) {
             return;
         }
-        if (!MobMapPermissions.canOpenUi(playerRef)) {
-            MobMapPermissions.sendDenied(playerRef);
+        if (!isMobMapCommandEnabled()) {
+            MobMapPermissions.sendUiDisabled(playerRef);
             return;
         }
 
@@ -196,7 +214,7 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         player.getPageManager().openCustomPage(entityRef, store, new MobMapFiltersPage(playerRef, this));
     }
 
-    void runUiTask(Runnable runnable) {
+    public void runUiTask(Runnable runnable) {
         if (runnable == null) {
             return;
         }
@@ -221,7 +239,6 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         Map<String, WorldMapManager.MarkerProvider> providers = worldMapManager.getMarkerProviders();
         if (providers == null || !(providers.get(PROVIDER_KEY) instanceof MobMarkerProvider)) {
             installProvider(worldMapManager, PROVIDER_KEY, new MobMarkerProvider(mobMarkerManager, visibilityService));
-            getLogger().at(Level.INFO).log("[MobMapMarkers] Provider registered: " + world.getName());
         }
     }
 
@@ -239,26 +256,26 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
     }
 
     private Path resolveDataDirectory() {
-        Path legacyDataDirectory = getDataDirectory();
-        if (legacyDataDirectory == null) {
+        Path dataDirectory = getDataDirectory();
+        if (dataDirectory == null) {
             throw new IllegalStateException("MobMapMarkers data directory is unavailable");
         }
 
-        Path quietDataDirectory = resolveQuietDataDirectory(legacyDataDirectory, "MobMapMarkers");
-        migrateLegacyDataDirectory(legacyDataDirectory, quietDataDirectory);
-        return quietDataDirectory;
+        Path legacyPluginDataDirectory = resolveLegacyPluginDataDirectory(dataDirectory, "MobMapMarkers");
+        migrateLegacyDataDirectory(legacyPluginDataDirectory, dataDirectory);
+        return dataDirectory;
     }
 
-    private Path resolveQuietDataDirectory(Path legacyDataDirectory, String directoryName) {
-        Path modsDirectory = legacyDataDirectory.getParent();
+    private Path resolveLegacyPluginDataDirectory(Path dataDirectory, String directoryName) {
+        Path modsDirectory = dataDirectory.getParent();
         if (modsDirectory == null || modsDirectory.getFileName() == null
                 || !"mods".equalsIgnoreCase(modsDirectory.getFileName().toString())) {
-            return legacyDataDirectory;
+            return dataDirectory;
         }
 
         Path worldRoot = modsDirectory.getParent();
         if (worldRoot == null) {
-            return legacyDataDirectory;
+            return dataDirectory;
         }
 
         return worldRoot.resolve("plugins").resolve(directoryName);

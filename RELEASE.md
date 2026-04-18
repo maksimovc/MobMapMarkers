@@ -54,8 +54,7 @@ build/libs/MobMapMarkers-1.6.0.jar
 After copying the jar to `UserData/Saves/<YourWorld>/mods/`, verify these startup lines:
 
 ```text
-[MobMapMarkers] Starting v1.5.0
-[MobMapMarkers] Provider registered: <world>
+[MobMapMarkers] Starting v1.6.0
 [MobMapMarkers] Ready.
 ```
 
@@ -65,7 +64,7 @@ Then validate in game:
 - Mob dots appear on `FastMiniMap` when both mods are installed and `showMobMarkersOnFastMiniMap` stays enabled
 - Mob markers do not leak onto the vanilla Hytale compass unless `showMobMarkersOnCompass` is enabled
 - Unknown or modded mobs use fallback icons when `renderUnknownMobFallbacks` is enabled
-- Repeated asset rebuilds are coalesced instead of being triggered per render path
+- Newly delivered marker icons appear after the next explicit asset-delivery phase without millisecond wait hacks
 - Server shutdown leaves no lingering MobMapMarkers scheduler threads behind
 
 ## Key Configuration To Mention In Release Notes
@@ -94,6 +93,7 @@ Then validate in game:
 - `FastMiniMapCompat` detects FastMiniMap at runtime without a hard dependency
 - Renamed config field `showMobMarkersOnSimpleMinimap` → `showMobMarkersOnFastMiniMap`
 - Build no longer requires or references any SimpleMinimap jar or stub sources
+- The `/mobmap` UI text now loads from resource-based language files with English, Ukrainian, Russian, and pt-BR coverage
 
 ## GitHub Release Title
 
