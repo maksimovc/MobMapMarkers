@@ -3,39 +3,45 @@ package dev.thenexusgates.mobmapmarkers.compat;
 import dev.thenexusgates.fastminimap.FastMiniMapMobLayerApi;
 import dev.thenexusgates.mobmapmarkers.MobMapMarkersPlugin;
 import dev.thenexusgates.mobmapmarkers.asset.MobMapImageProcessor;
-import dev.thenexusgates.mobmapmarkers.catalog.HytaleNpcPortraitResolver;
-import dev.thenexusgates.mobmapmarkers.catalog.MobArchiveIndex;
+import dev.thenexusgates.mobmapmarkers.catalog.HytaleMobIconResolver;
+import dev.thenexusgates.mobmapmarkers.catalog.MobPortraitMatcher;
 import dev.thenexusgates.mobmapmarkers.config.MobMapMarkersConfig;
 import dev.thenexusgates.mobmapmarkers.filter.MobMarkerSurface;
 import dev.thenexusgates.mobmapmarkers.marker.MobMarkerManager;
 import dev.thenexusgates.mobmapmarkers.marker.MobMarkerVisibilityService;
+import dev.thenexusgates.mobmapmarkers.util.WeightedLruCache;
 
 import javax.imageio.ImageIO;
+import java.awt.AlphaComposite;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
 public final class FastMiniMapCompatService {
 
-    /** Rendered size of mob icons (portraits and badges) on the minimap in pixels. */
     private static final int MINIMAP_ICON_SIZE = 20;
+    private static final int MAX_CACHED_ICONS = 512;
+    private static final long ICON_CACHE_BYTES = 4L * 1024 * 1024;
 
-    /**
-     * Sentinel placed in {@link #iconCache} for roles whose portrait could not be
-     * resolved, so we never attempt resolution more than once per role.
-     */
     private static final BufferedImage NO_ICON =
             new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
 
     private final MobMarkerManager manager;
     private final MobMarkerVisibilityService visibilityService;
 
-    /** Role-name → scaled portrait icon (or {@link #NO_ICON} sentinel when unavailable). */
-    private final ConcurrentHashMap<String, BufferedImage> iconCache = new ConcurrentHashMap<>();
+    private final WeightedLruCache<String, BufferedImage> iconCache = new WeightedLruCache<>(
+            MAX_CACHED_ICONS,
+            ICON_CACHE_BYTES,
+            FastMiniMapCompatService::estimateImageWeight);
+    private final Set<String> loadingRoles = ConcurrentHashMap.newKeySet();
 
     public FastMiniMapCompatService(MobMarkerManager manager, MobMarkerVisibilityService visibilityService) {
         this.manager = manager;
@@ -48,6 +54,8 @@ public final class FastMiniMapCompatService {
 
     public void unregister() {
         FastMiniMapMobLayerApi.setProvider(null);
+        iconCache.clear();
+        loadingRoles.clear();
     }
 
     private List<FastMiniMapMobLayerApi.MobDot> getDots(
@@ -64,9 +72,7 @@ public final class FastMiniMapCompatService {
             return List.of();
         }
 
-        double radiusSq = radiusBlocks <= 0
-                ? Double.POSITIVE_INFINITY
-                : (double) config.mobMarkerRadius * config.mobMarkerRadius;
+        double radiusSq = resolveMaxDistanceSquared(config.mobMarkerRadius, radiusBlocks);
 
         List<FastMiniMapMobLayerApi.MobDot> dots = new ArrayList<>();
         for (MobMarkerManager.MobMarkerSnapshot snapshot : snapshots) {
@@ -81,74 +87,72 @@ public final class FastMiniMapCompatService {
             if (dx * dx + dz * dz > radiusSq) {
                 continue;
             }
+            BufferedImage icon = resolveIcon(snapshot.roleName(), snapshot.displayName());
+            if (icon == null) {
+                continue;
+            }
+
             dots.add(new FastMiniMapMobLayerApi.MobDot(
                     snapshot.position().x,
                     snapshot.position().z,
-                    resolveIcon(snapshot.roleName(), snapshot.displayName())));
+                    icon));
         }
         return dots;
     }
 
-    // -------------------------------------------------------------------------
-    // Icon resolution
-    // -------------------------------------------------------------------------
-    // Icon resolution — all rendering delegated to MobMapImageProcessor
-    // -------------------------------------------------------------------------
-
-    /**
-     * Returns a cached {@link BufferedImage} icon for the given role.
-     * All rendering is delegated to {@link MobMapImageProcessor}, the single
-     * source of truth for icon generation in MobMapMarkers.
-     */
     private BufferedImage resolveIcon(String roleName, String displayName) {
+        if (MobPortraitMatcher.isExcludedRole(roleName)) {
+            return null;
+        }
+
         String key = roleName == null ? "" : roleName.toLowerCase(Locale.ROOT);
         BufferedImage cached = iconCache.get(key);
         if (cached != null) {
             return cached == NO_ICON ? null : cached;
         }
-        BufferedImage icon = loadIcon(roleName, displayName);
-        iconCache.put(key, icon != null ? icon : NO_ICON);
-        return icon;
+
+        queueIconLoad(key, roleName, displayName);
+        return null;
     }
 
-    /**
-     * Generates the icon via the same pipeline used by the big map:
-     * portrait ({@link MobMapImageProcessor#createMobPortraitMarkerPng}) when
-     * available, otherwise a text-badge
-     * ({@link MobMapImageProcessor#createMobMarkerPng}).
-     */
+    private void queueIconLoad(String key, String roleName, String displayName) {
+        if (!loadingRoles.add(key)) {
+            return;
+        }
+
+        MobMapMarkersPlugin plugin = MobMapMarkersPlugin.getInstance();
+        if (plugin == null) {
+            loadingRoles.remove(key);
+            return;
+        }
+
+        plugin.runUiTask(() -> loadAndCacheIcon(key, roleName, displayName));
+    }
+
+    private void loadAndCacheIcon(String key, String roleName, String displayName) {
+        try {
+            BufferedImage icon = loadIcon(roleName, displayName);
+            iconCache.put(key, icon != null ? icon : NO_ICON);
+        } finally {
+            loadingRoles.remove(key);
+        }
+    }
+
     private static BufferedImage loadIcon(String roleName, String displayName) {
-        // -- Try portrait first --
-        String portraitName = HytaleNpcPortraitResolver.resolvePortraitName(roleName);
-        if (portraitName != null) {
-            byte[] rawPng = HytaleNpcPortraitResolver.loadPortraitPngByPortraitName(portraitName);
+        String iconEntryName = HytaleMobIconResolver.resolveIconEntryName(roleName);
+        if (iconEntryName != null) {
+            byte[] rawPng = HytaleMobIconResolver.loadIconPngByEntryName(iconEntryName);
             if (rawPng != null && rawPng.length > 0) {
-                byte[] iconBytes = MobMapImageProcessor.createMobPortraitMarkerPng(
-                        rawPng, MINIMAP_ICON_SIZE, false, 96);
-                if (iconBytes != null && iconBytes.length > 0) {
-                    try {
-                        return ImageIO.read(new ByteArrayInputStream(iconBytes));
-                    } catch (IOException ignored) {
-                        // fall through to badge
-                    }
-                }
-            }
-        }
-
-        byte[] modPortraitPng = MobArchiveIndex.loadModPortraitPngByRoleName(roleName);
-        if (modPortraitPng != null && modPortraitPng.length > 0) {
-            byte[] iconBytes = MobMapImageProcessor.createMobPortraitMarkerPng(
-                    modPortraitPng, MINIMAP_ICON_SIZE, false, 96);
-            if (iconBytes != null && iconBytes.length > 0) {
                 try {
-                    return ImageIO.read(new ByteArrayInputStream(iconBytes));
+                    BufferedImage source = ImageIO.read(new ByteArrayInputStream(rawPng));
+                    if (source != null) {
+                        return scaleSquare(source, MINIMAP_ICON_SIZE);
+                    }
                 } catch (IOException ignored) {
-                    // fall through to badge
                 }
             }
         }
 
-        // -- No portrait: render a plain circle badge (no map-pin tail) --
         byte[] badgeBytes = MobMapImageProcessor.createMinimapBadgePng(roleName, displayName, MINIMAP_ICON_SIZE);
         if (badgeBytes == null || badgeBytes.length == 0) {
             return null;
@@ -158,5 +162,48 @@ public final class FastMiniMapCompatService {
         } catch (IOException ignored) {
             return null;
         }
+    }
+
+    private static BufferedImage scaleSquare(BufferedImage source, int size) {
+        if (source.getWidth() == size && source.getHeight() == size && source.getType() == BufferedImage.TYPE_INT_ARGB) {
+            BufferedImage copy = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D graphics = copy.createGraphics();
+            graphics.setComposite(AlphaComposite.Src);
+            graphics.drawImage(source, 0, 0, null);
+            graphics.dispose();
+            return copy;
+        }
+
+        double scale = Math.min(
+                (double) size / Math.max(1, source.getWidth()),
+                (double) size / Math.max(1, source.getHeight()));
+        int drawWidth = Math.max(1, (int) Math.round(source.getWidth() * scale));
+        int drawHeight = Math.max(1, (int) Math.round(source.getHeight() * scale));
+        int offsetX = (size - drawWidth) / 2;
+        int offsetY = (size - drawHeight) / 2;
+
+        BufferedImage scaled = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = scaled.createGraphics();
+        graphics.setComposite(AlphaComposite.Src);
+        graphics.setRenderingHint(RenderingHints.KEY_ALPHA_INTERPOLATION, RenderingHints.VALUE_ALPHA_INTERPOLATION_QUALITY);
+        graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        graphics.drawImage(source, offsetX, offsetY, drawWidth, drawHeight, null);
+        graphics.dispose();
+        return scaled;
+    }
+
+    private static double resolveMaxDistanceSquared(int configRadius, int overlayRadius) {
+        double configLimit = configRadius <= 0 ? Double.POSITIVE_INFINITY : (double) configRadius * configRadius;
+        double overlayLimit = overlayRadius <= 0 ? Double.POSITIVE_INFINITY : (double) overlayRadius * overlayRadius;
+        return Math.min(configLimit, overlayLimit);
+    }
+
+    private static long estimateImageWeight(BufferedImage image) {
+        if (image == null) {
+            return 0L;
+        }
+        return (long) image.getWidth() * image.getHeight() * 4L;
     }
 }

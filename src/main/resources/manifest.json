@@ -1,8 +1,8 @@
 {
   "Group": "thenexusgates",
   "Name": "MobMapMarkers",
-  "Version": "1.5.0",
-  "Description": "Shows configurable mob markers on the Hytale world map with optional FastMiniMap mob dot overlay, safe shutdown, and in-memory asset delivery.",
+  "Version": "1.6.3",
+  "Description": "Mob markers for the Hytale world map, BetterMap radar, and optional FastMiniMap overlays with JSON-based icon resolution and per-player /mobmap filters.",
   "Authors": [
     {
       "Name": "maksimovc"
@@ -10,6 +10,8 @@
   ],
   "Website": "https://github.com/maksimovc/MobMapMarkers",
   "ServerVersion": "2026.03.26-89796e57b",
+  "Dependencies": {},
+  "OptionalDependencies": {},
   "DisabledByDefault": false,
   "IncludesAssetPack": true,
   "Main": "dev.thenexusgates.mobmapmarkers.MobMapMarkersPlugin"

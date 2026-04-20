@@ -19,6 +19,7 @@ import dev.thenexusgates.mobmapmarkers.asset.MobMapAssetPack;
 import dev.thenexusgates.mobmapmarkers.catalog.MobArchiveIndex;
 import dev.thenexusgates.mobmapmarkers.catalog.MobCatalogEntry;
 import dev.thenexusgates.mobmapmarkers.catalog.MobNameLocalization;
+import dev.thenexusgates.mobmapmarkers.catalog.MobPortraitMatcher;
 import dev.thenexusgates.mobmapmarkers.config.MobMapMarkersConfig;
 import dev.thenexusgates.mobmapmarkers.filter.MobMarkerFilterRule;
 import dev.thenexusgates.mobmapmarkers.filter.MobMarkerSurface;
@@ -360,6 +361,10 @@ public final class MobMapFiltersPage extends InteractiveCustomUIPage<MobMapFilte
         String query = normalizedSearch();
         List<RowModel> rows = new ArrayList<>();
         for (MobCatalogEntry entry : entries.values()) {
+            if (MobPortraitMatcher.isExcludedRole(entry.roleName())) {
+                continue;
+            }
+
             String displayName = MobNameLocalization.resolveDisplayName(
                     entry.nameTranslationKey(),
                     entry.fallbackDisplayName(),
@@ -418,7 +423,7 @@ public final class MobMapFiltersPage extends InteractiveCustomUIPage<MobMapFilte
             cachedRows = List.copyOf(rows);
             currentPage = clampPage(currentPage, rows.size());
             rowsLoading = false;
-            sendResultsUpdate(true);
+            sendResultsUpdate();
             requestVisiblePageIcons();
         });
     }
@@ -491,7 +496,7 @@ public final class MobMapFiltersPage extends InteractiveCustomUIPage<MobMapFilte
             }
 
             cachedRows = updateCachedIcons(cachedRows, iconByMobKey);
-            sendResultsUpdate(true);
+            sendResultsUpdate();
 
             if (requestAnotherPass && currentPage == pageIndex) {
                 requestVisiblePageIcons();

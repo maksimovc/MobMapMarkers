@@ -2,13 +2,14 @@ package dev.thenexusgates.mobmapmarkers.catalog;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-final class MobPortraitMatcher {
+public final class MobPortraitMatcher {
 
     private static final int MIN_FUZZY_MATCH_SCORE = 6;
 
@@ -29,20 +30,35 @@ final class MobPortraitMatcher {
     );
 
     private static final Set<String> LEADING_PREFIXES = Set.of(
-            "Temple", "Tamed", "Friendly", "Passive", "Companion", "Summoned");
+            "Dungeon", "Temple", "Test", "Tamed", "Friendly", "Passive", "Companion", "Summoned");
     private static final Set<String> TRAILING_SUFFIXES = Set.of(
-            "Wander", "Wandering", "Patrol", "Static", "Alerted", "Sleeping");
+            "Wander", "Wandering", "Patrol", "Static", "Alerted", "Sleeping", "Tutorial");
     private static final Set<String> MATCH_IGNORED_TOKENS = Set.of(
             "Black", "White", "Brown", "Red", "Blue", "Green", "Yellow", "Orange",
-            "Gray", "Grey", "Pink", "Purple", "Gold", "Silver", "Light", "Dark",
+            "Gray", "Grey", "Pink", "Purple", "Gold", "Silver", "Light", "Dark", "Calico",
             "Armored", "Armoured", "Berserk", "Berserker", "Chief", "Elite", "Heavy",
-            "Male", "Female", "Adult", "Child", "Baby", "Young", "Old", "Small", "Large",
+            "Male", "Female", "Adult", "Child", "Baby", "Young", "Old", "Small", "Large", "Wild", "Tamed",
             "Giant", "Alpha", "Beta", "Test", "Unified");
+    private static final Set<String> STRUCTURAL_TOKENS = Set.of(
+            "Test", "Temple", "Component", "Instruction", "Template", "Beacon", "Notify", "Receive",
+            "Sensor", "Action", "Sequence", "Computable", "Condition", "Filter", "Tag", "Guided",
+            "Shooter", "Dummy", "Static", "Override", "Desired", "Altitude", "Weight", "Ray",
+            "Seek", "Takeoff", "TakeOff", "Land", "Block", "Pos", "Path", "List", "Switch",
+            "Effect", "Entity", "Combat", "Charge", "Culling", "Friendly", "Damage", "Death",
+            "Particles", "Benchmark", "Search", "Warning", "Warn", "Shot", "Greeting", "Converge",
+            "Return", "Home", "Dropped", "Meat", "Offensive", "Reputation", "Sleep", "Spar",
+            "Can", "Low", "Hp", "Day", "Attack", "Melee", "Ranged", "Charged", "Bow", "Flee");
+    private static final Set<String> EXCLUDED_ROLE_TOKENS = Set.of("Component", "Test", "Template");
+        private static final Set<String> TRAVERSAL_EXCLUDED_ROLE_TOKENS = Set.of("Component", "Test");
 
     private MobPortraitMatcher() {
     }
 
-    static String normalizeRole(String roleName) {
+    public static String normalizeRole(String roleName) {
+        if (roleName == null || roleName.isBlank()) {
+            return "";
+        }
+
         String[] rawParts = roleName.replace('-', '_').split("_");
         List<String> parts = new ArrayList<>();
         for (String rawPart : rawParts) {
@@ -56,9 +72,40 @@ final class MobPortraitMatcher {
         return String.join("_", parts);
     }
 
-    static List<String> buildCandidates(String roleName) {
+    public static boolean isComponentRole(String roleName) {
+        String normalized = normalizeRole(roleName);
+        return normalized.equals("Component") || normalized.startsWith("Component_");
+    }
+
+    public static boolean isExcludedRole(String roleName) {
+        return hasExcludedToken(roleName, EXCLUDED_ROLE_TOKENS);
+    }
+
+    public static boolean isTraversalExcludedRole(String roleName) {
+        return hasExcludedToken(roleName, TRAVERSAL_EXCLUDED_ROLE_TOKENS);
+    }
+
+    private static boolean hasExcludedToken(String roleName, Set<String> excludedTokens) {
+        String normalized = normalizeRole(roleName);
+        if (normalized.isBlank()) {
+            return false;
+        }
+
+        for (String token : normalized.split("_")) {
+            if (excludedTokens.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static List<String> buildCandidates(String roleName) {
         String normalized = normalizeRole(roleName);
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        if (normalized.isBlank()) {
+            return List.of();
+        }
+
         candidates.add(normalized);
 
         List<String> aliases = ROLE_ALIASES.get(normalized);
@@ -86,6 +133,7 @@ final class MobPortraitMatcher {
             candidates.add(normalized.substring(0, normalized.length() - "_Plain".length()));
         }
 
+        addStructuralStrippedVariants(normalized, candidates);
         addAnimalFallbacks(normalized, candidates);
         addDescriptorStrippedVariants(normalized, candidates);
 
@@ -102,7 +150,44 @@ final class MobPortraitMatcher {
         return List.copyOf(candidates);
     }
 
-    static List<String> normalizedTokens(String name) {
+    public static String findMatchingPortrait(String roleName, Iterable<String> portraitNames) {
+        if (roleName == null || roleName.isBlank() || portraitNames == null) {
+            return null;
+        }
+
+        LinkedHashSet<String> available = collectAvailableNames(portraitNames);
+        if (available.isEmpty()) {
+            return null;
+        }
+
+        String strictMatch = findBestCandidateMatch(roleName, available);
+        if (strictMatch != null) {
+            return strictMatch;
+        }
+
+        return findUnambiguousFamilyPortrait(roleName, available);
+    }
+
+    public static String findBestCandidateMatch(String roleName, Iterable<String> names) {
+        if (roleName == null || roleName.isBlank() || names == null) {
+            return null;
+        }
+
+        LinkedHashSet<String> available = collectAvailableNames(names);
+        if (available.isEmpty()) {
+            return null;
+        }
+
+        for (String candidate : buildCandidates(roleName)) {
+            if (available.contains(candidate)) {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    public static List<String> normalizedTokens(String name) {
         List<String> tokens = new ArrayList<>();
         for (String token : name.split("_")) {
             if (token == null || token.isBlank()) {
@@ -118,9 +203,9 @@ final class MobPortraitMatcher {
         return List.copyOf(tokens);
     }
 
-    static int scorePortraitMatch(List<String> roleTokens, List<String> portraitTokens, String portraitName) {
+    public static int scorePortraitMatch(List<String> roleTokens, List<String> portraitTokens, String portraitName) {
         int overlap = 0;
-        java.util.HashMap<String, Integer> portraitCounts = new java.util.HashMap<>();
+        HashMap<String, Integer> portraitCounts = new HashMap<>();
         for (String token : portraitTokens) {
             portraitCounts.merge(token, 1, Integer::sum);
         }
@@ -151,7 +236,8 @@ final class MobPortraitMatcher {
         return score;
     }
 
-    static String findBestFuzzyPortrait(String roleName, Iterable<String> portraitNames, Map<String, List<String>> tokensByPortrait) {
+    public static String findBestFuzzyPortrait(String roleName, Iterable<String> portraitNames,
+                                               Map<String, List<String>> tokensByPortrait) {
         List<String> roleTokens = normalizedTokens(normalizeRole(roleName));
         if (roleTokens.isEmpty()) {
             return null;
@@ -175,7 +261,25 @@ final class MobPortraitMatcher {
         return bestScore >= MIN_FUZZY_MATCH_SCORE ? bestPortrait : null;
     }
 
+    private static LinkedHashSet<String> collectAvailableNames(Iterable<String> names) {
+        LinkedHashSet<String> available = new LinkedHashSet<>();
+        for (String portraitName : names) {
+            if (portraitName != null && !portraitName.isBlank()) {
+                available.add(portraitName);
+            }
+        }
+        return available;
+    }
+
     private static void addAnimalFallbacks(String normalized, LinkedHashSet<String> candidates) {
+        List<String> parts = Arrays.asList(normalized.split("_"));
+        if (parts.contains("Kitten")) {
+            candidates.add("Kitten");
+            candidates.add("Cat");
+        }
+        if (parts.contains("Cat") || parts.contains("Cats")) {
+            candidates.add("Cat");
+        }
         if (normalized.startsWith("Wolf_")) {
             candidates.add("Wolf_Black");
             candidates.add("Wolf_White");
@@ -219,5 +323,60 @@ final class MobPortraitMatcher {
         if (!stripped.isEmpty() && stripped.size() < parts.size()) {
             candidates.add(String.join("_", stripped));
         }
+    }
+
+    private static void addStructuralStrippedVariants(String normalized, LinkedHashSet<String> candidates) {
+        List<String> parts = new ArrayList<>(Arrays.asList(normalized.split("_")));
+        if (parts.isEmpty()) {
+            return;
+        }
+
+        while (!parts.isEmpty() && LEADING_PREFIXES.contains(parts.get(0))) {
+            parts.remove(0);
+        }
+
+        if (!parts.isEmpty()) {
+            candidates.add(String.join("_", parts));
+        }
+
+        List<String> structuralStripped = new ArrayList<>();
+        for (String part : parts) {
+            if (!STRUCTURAL_TOKENS.contains(part)) {
+                structuralStripped.add(part);
+            }
+        }
+
+        if (!structuralStripped.isEmpty() && structuralStripped.size() < parts.size()) {
+            String canonical = String.join("_", structuralStripped);
+            candidates.add(canonical);
+
+            if (structuralStripped.size() > 1) {
+                for (int start = 1; start < structuralStripped.size(); start++) {
+                    candidates.add(String.join("_", structuralStripped.subList(start, structuralStripped.size())));
+                }
+                for (int end = structuralStripped.size() - 1; end > 0; end--) {
+                    candidates.add(String.join("_", structuralStripped.subList(0, end)));
+                }
+            }
+        }
+    }
+
+    private static String findUnambiguousFamilyPortrait(String roleName, LinkedHashSet<String> portraitNames) {
+        List<String> roleTokens = normalizedTokens(normalizeRole(roleName));
+        if (roleTokens.isEmpty()) {
+            return null;
+        }
+
+        String familyToken = roleTokens.get(0);
+        String familyPrefix = familyToken.substring(0, 1).toUpperCase(Locale.ROOT)
+                + familyToken.substring(1).toLowerCase(Locale.ROOT);
+        List<String> familyMatches = new ArrayList<>();
+        for (String portraitName : portraitNames) {
+            if (portraitName.equals(familyPrefix) || portraitName.startsWith(familyPrefix + "_")) {
+                familyMatches.add(portraitName);
+            }
+        }
+
+        return familyMatches.size() == 1 ? familyMatches.get(0) : null;
     }
 }

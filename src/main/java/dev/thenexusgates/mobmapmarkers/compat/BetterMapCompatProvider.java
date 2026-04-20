@@ -1,4 +1,4 @@
-package dev.thenexusgates.mobmapmarkers.marker;
+package dev.thenexusgates.mobmapmarkers.compat;
 
 import com.hypixel.hytale.math.vector.Transform;
 import com.hypixel.hytale.math.vector.Vector3d;
@@ -16,6 +16,9 @@ import dev.thenexusgates.mobmapmarkers.asset.MobMapAssetPack;
 import dev.thenexusgates.mobmapmarkers.catalog.MobNameLocalization;
 import dev.thenexusgates.mobmapmarkers.config.MobMapMarkersConfig;
 import dev.thenexusgates.mobmapmarkers.filter.MobMarkerSurface;
+import dev.thenexusgates.mobmapmarkers.marker.MobMapMarkerSupport;
+import dev.thenexusgates.mobmapmarkers.marker.MobMarkerManager;
+import dev.thenexusgates.mobmapmarkers.marker.MobMarkerVisibilityService;
 import dev.thenexusgates.mobmapmarkers.tracking.LivePlayerTracker;
 
 import java.util.ArrayList;
@@ -26,14 +29,20 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-public final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
+public final class BetterMapCompatProvider implements WorldMapManager.MarkerProvider {
+
+    public static final String PROVIDER_KEY = "BetterMapMobRadar";
 
     private final MobMarkerManager manager;
     private final MobMarkerVisibilityService visibilityService;
 
-    public MobMarkerProvider(MobMarkerManager manager, MobMarkerVisibilityService visibilityService) {
+    public BetterMapCompatProvider(MobMarkerManager manager, MobMarkerVisibilityService visibilityService) {
         this.manager = manager;
         this.visibilityService = visibilityService;
+    }
+
+    public static boolean isAvailable() {
+        return BetterMapBridge.isAvailable();
     }
 
     @Override
@@ -42,36 +51,36 @@ public final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
             return;
         }
 
+        BetterMapBridge.ViewerSettings viewerSettings = BetterMapBridge.resolveViewerSettings(viewer);
+        if (!viewerSettings.enabled()) {
+            return;
+        }
+
         MobMapMarkersConfig config = MobMapMarkersPlugin.getConfig();
         if (config == null || !config.enableMobMarkers) {
             return;
         }
 
-        String worldName = world.getName();
         UUID viewerUuid = ((CommandSender) viewer).getUuid();
+        String worldName = world.getName();
         PlayerRef viewerRef = findViewerRef(world.getPlayerRefs(), viewerUuid);
         if (viewerRef == null || viewerRef.getUuid() == null) {
             return;
         }
 
         MobMapAssetPack.advanceViewerDeliveryPhase(viewerRef);
-        boolean worldMapVisible = MobMapMarkerSupport.isWorldMapVisible(viewer);
-        MobMarkerSurface surface = worldMapVisible ? MobMarkerSurface.MAP : MobMarkerSurface.COMPASS;
         Vector3d viewerPosition = manager.getPlayerPosition(worldName, viewerUuid);
         if (viewerPosition == null) {
             viewerPosition = findViewerPosition(world.getPlayerRefs(), viewerUuid);
         }
 
-        double maxDistanceSquared = config.mobMarkerRadius <= 0
-                ? Double.POSITIVE_INFINITY
-                : (double) config.mobMarkerRadius * config.mobMarkerRadius;
-
+        double maxDistanceSquared = resolveMaxDistanceSquared(config.mobMarkerRadius, viewerSettings.radarRange());
         List<MarkerCandidate> candidates = new ArrayList<>();
         for (MobMarkerManager.MobMarkerSnapshot snapshot : manager.getMobData(worldName)) {
             if (snapshot == null || snapshot.position() == null) {
                 continue;
             }
-            if (!visibilityService.isVisible(viewerUuid, snapshot, surface)) {
+            if (!visibilityService.isVisible(viewerUuid, snapshot, MobMarkerSurface.COMPASS)) {
                 continue;
             }
 
@@ -89,9 +98,9 @@ public final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
         int limit = config.maxVisibleMobMarkers > 0
                 ? Math.min(config.maxVisibleMobMarkers, candidates.size())
                 : candidates.size();
-        String viewerLanguage = viewerRef != null ? viewerRef.getLanguage() : null;
-        List<BuiltMarker> builtMarkers = new ArrayList<>();
+        String viewerLanguage = viewerRef.getLanguage();
         Set<String> missingImagePaths = new LinkedHashSet<>();
+        List<BuiltMarker> builtMarkers = new ArrayList<>();
 
         for (int index = 0; index < limit; index++) {
             MarkerCandidate candidate = candidates.get(index);
@@ -104,7 +113,10 @@ public final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                 String markerImage = MobMapAssetPack.ensureMobIcon(
                         snapshot.roleName(),
                         localizedDisplayName,
-                        MobNameLocalization.buildAssetLocaleKey(snapshot.nameTranslationKey(), viewerLanguage, localizedDisplayName),
+                        MobNameLocalization.buildAssetLocaleKey(
+                                snapshot.nameTranslationKey(),
+                                viewerLanguage,
+                                localizedDisplayName),
                         config.mobMarkerSize,
                         config.mobIconContentScalePercent,
                         snapshot.facingRight(),
@@ -112,6 +124,7 @@ public final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                 if (markerImage == null) {
                     continue;
                 }
+
                 boolean assetReady = MobMapAssetPack.hasDeliveredAsset(viewerRef.getUuid(), markerImage);
                 if (!assetReady) {
                     missingImagePaths.add(markerImage);
@@ -140,11 +153,24 @@ public final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
         }
 
         for (BuiltMarker builtMarker : builtMarkers) {
-            if (!builtMarker.assetReady()) {
-                continue;
+            if (builtMarker.assetReady()) {
+                collector.add(builtMarker.marker());
             }
-            collector.add(builtMarker.marker());
         }
+    }
+
+    private static PlayerRef findViewerRef(Collection<PlayerRef> playerRefs, UUID viewerUuid) {
+        if (playerRefs == null || viewerUuid == null) {
+            return null;
+        }
+
+        for (PlayerRef ref : playerRefs) {
+            if (ref != null && viewerUuid.equals(ref.getUuid())) {
+                return ref;
+            }
+        }
+
+        return null;
     }
 
     private static Vector3d findViewerPosition(Collection<PlayerRef> playerRefs, UUID viewerUuid) {
@@ -166,18 +192,10 @@ public final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
         return null;
     }
 
-    private static PlayerRef findViewerRef(Collection<PlayerRef> playerRefs, UUID viewerUuid) {
-        if (playerRefs == null || viewerUuid == null) {
-            return null;
-        }
-
-        for (PlayerRef ref : playerRefs) {
-            if (ref != null && viewerUuid.equals(ref.getUuid())) {
-                return ref;
-            }
-        }
-
-        return null;
+    private static double resolveMaxDistanceSquared(int configRadius, int radarRange) {
+        double configLimit = configRadius <= 0 ? Double.POSITIVE_INFINITY : (double) configRadius * configRadius;
+        double radarLimit = radarRange <= 0 ? Double.POSITIVE_INFINITY : (double) radarRange * radarRange;
+        return Math.min(configLimit, radarLimit);
     }
 
     private static double squaredDistance(Vector3d a, Vector3d b) {

@@ -1,10 +1,13 @@
 package dev.thenexusgates.mobmapmarkers.util;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 public final class HytaleInstallLocator {
 
@@ -14,6 +17,17 @@ public final class HytaleInstallLocator {
     }
 
     public static Path resolveAssetsZipPath() {
+        String explicitAssetsZip = firstNonBlank(
+                System.getProperty("hytale.assets_zip"),
+                System.getenv("HYTALE_ASSETS_ZIP"));
+        if (explicitAssetsZip != null) {
+            Path explicitPath = Paths.get(explicitAssetsZip).toAbsolutePath().normalize();
+            if (Files.exists(explicitPath)) {
+                assetsZipPath = explicitPath;
+                return explicitPath;
+            }
+        }
+
         Path cached = assetsZipPath;
         if (cached != null && Files.exists(cached)) {
             return cached;
@@ -27,6 +41,40 @@ public final class HytaleInstallLocator {
         }
 
         return null;
+    }
+
+    public static void clearCaches() {
+        assetsZipPath = null;
+    }
+
+    public static List<Path> findInstalledModArchives(Class<?> anchorClass) {
+        LinkedHashSet<Path> archives = new LinkedHashSet<>();
+        addConfiguredArchivePaths(
+                archives,
+                firstNonBlank(
+                        System.getProperty("hytale.mod_archives"),
+                        System.getenv("HYTALE_MOD_ARCHIVES")));
+        archives.addAll(findCoLocatedModArchives(anchorClass));
+        return List.copyOf(archives);
+    }
+
+    public static List<Path> findCoLocatedModArchives(Class<?> anchorClass) {
+        Path anchorPath = resolveCodeSourcePath(anchorClass);
+        Path modsDirectory = resolveCoLocatedModsDirectory(anchorPath);
+        if (modsDirectory == null || !Files.isDirectory(modsDirectory)) {
+            return List.of();
+        }
+
+        LinkedHashSet<Path> archives = new LinkedHashSet<>();
+        try (var modFiles = Files.list(modsDirectory)) {
+            modFiles.filter(Files::isRegularFile)
+                    .filter(HytaleInstallLocator::isArchiveFile)
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .filter(path -> anchorPath == null || !path.equals(anchorPath))
+                    .forEach(archives::add);
+        } catch (Exception ignored) {
+        }
+        return List.copyOf(archives);
     }
 
     public static List<Path> findSaveRoots() {
@@ -116,6 +164,81 @@ public final class HytaleInstallLocator {
         candidates.add(base.resolve("Hytale-API/latest/Assets.zip"));
         candidates.add(base.resolve("Hytale-API/Client/latest/Assets.zip"));
         candidates.add(base.resolve("Hytale-API/Client/release/latest/Assets.zip"));
+    }
+
+    private static Path resolveCodeSourcePath(Class<?> anchorClass) {
+        if (anchorClass == null) {
+            return null;
+        }
+
+        try {
+            var codeSource = anchorClass.getProtectionDomain().getCodeSource();
+            if (codeSource == null || codeSource.getLocation() == null) {
+                return null;
+            }
+            return Paths.get(codeSource.getLocation().toURI()).toAbsolutePath().normalize();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Path resolveCoLocatedModsDirectory(Path anchorPath) {
+        if (anchorPath == null) {
+            return null;
+        }
+
+        if (Files.isDirectory(anchorPath)) {
+            if (anchorPath.getFileName() != null && "mods".equalsIgnoreCase(anchorPath.getFileName().toString())) {
+                return anchorPath;
+            }
+
+            Path parent = anchorPath.getParent();
+            if (parent != null && parent.getFileName() != null
+                    && "mods".equalsIgnoreCase(parent.getFileName().toString())) {
+                return parent;
+            }
+            return null;
+        }
+
+        return anchorPath.getParent();
+    }
+
+    private static boolean isArchiveFile(Path path) {
+        if (path == null || path.getFileName() == null) {
+            return false;
+        }
+
+        String lower = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return lower.endsWith(".jar") || lower.endsWith(".zip");
+    }
+
+    private static void addConfiguredArchivePaths(LinkedHashSet<Path> archives, String configuredPaths) {
+        if (configuredPaths == null || configuredPaths.isBlank()) {
+            return;
+        }
+
+        String separator = Pattern.quote(File.pathSeparator);
+        for (String rawPart : configuredPaths.split(separator)) {
+            if (rawPart == null || rawPart.isBlank()) {
+                continue;
+            }
+
+            Path candidate = Paths.get(rawPart.trim()).toAbsolutePath().normalize();
+            if (Files.isDirectory(candidate)) {
+                try (var children = Files.list(candidate)) {
+                    children.filter(Files::isRegularFile)
+                            .filter(HytaleInstallLocator::isArchiveFile)
+                            .map(path -> path.toAbsolutePath().normalize())
+                            .forEach(archives::add);
+                } catch (Exception ignored) {
+                }
+                continue;
+            }
+
+            if (Files.isRegularFile(candidate) && isArchiveFile(candidate)) {
+                archives.add(candidate);
+            }
+        }
     }
 
     private static String firstNonBlank(String... values) {

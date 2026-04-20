@@ -12,9 +12,10 @@ import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.worldmap.WorldMapManager;
 import dev.thenexusgates.mobmapmarkers.asset.MobMapAssetPack;
-import dev.thenexusgates.mobmapmarkers.catalog.HytaleNpcPortraitResolver;
+import dev.thenexusgates.mobmapmarkers.catalog.HytaleMobIconResolver;
 import dev.thenexusgates.mobmapmarkers.catalog.MobArchiveIndex;
 import dev.thenexusgates.mobmapmarkers.command.MobMapFiltersCommand;
+import dev.thenexusgates.mobmapmarkers.compat.BetterMapCompatProvider;
 import dev.thenexusgates.mobmapmarkers.compat.FastMiniMapCompat;
 import dev.thenexusgates.mobmapmarkers.compat.FastMiniMapCompatService;
 import dev.thenexusgates.mobmapmarkers.config.MobMapMarkersConfig;
@@ -44,7 +45,9 @@ import java.util.logging.Level;
 public final class MobMapMarkersPlugin extends JavaPlugin {
 
     static final String PROVIDER_KEY = "mobMapMarkers";
-    private static final String VERSION = "1.6.0";
+    private static final String VERSION = "1.6.3";
+    private static final String LEGACY_CONFIG_FILE_NAME = "mobmapmarkers-config.json";
+    private static final String CONFIG_FILE_NAME = "mobmapmarkers.json";
 
     private static MobMapMarkersPlugin instance;
     private static MobMapMarkersConfig config;
@@ -102,8 +105,7 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         Path dataDirectory = resolveDataDirectory();
         MobMapAssetPack.init(dataDirectory);
         LivePlayerTracker.register();
-        config = MobMapMarkersConfig.load(
-            MobMapAssetPack.getDataRoot().resolve("mobmapmarkers-config.json"));
+        config = MobMapMarkersConfig.load(resolveConfigPath(MobMapAssetPack.getDataRoot()));
         filterStore = new MobMarkerFilterStore(MobMapAssetPack.getDataRoot());
         visibilityService = new MobMarkerVisibilityService(filterStore, MobMapMarkersPlugin::getConfig);
         uiSounds = new MobMapUiSounds();
@@ -123,7 +125,7 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
             fastMiniMapCompatService.register();
         }
         runUiTask(() -> {
-            HytaleNpcPortraitResolver.prewarm();
+            HytaleMobIconResolver.prewarm();
             MobArchiveIndex.prewarm();
         });
         getCommandRegistry().registerCommand(new MobMapFiltersCommand(this));
@@ -182,6 +184,8 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
 
         ACTIVE_PLAYERS.clear();
         LivePlayerTracker.shutdown();
+        HytaleMobIconResolver.clearCaches();
+        MobArchiveIndex.clearCaches();
         MobMapAssetPack.shutdown();
         if (uiWorker != null) {
             uiWorker.shutdownNow();
@@ -240,6 +244,15 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
         if (providers == null || !(providers.get(PROVIDER_KEY) instanceof MobMarkerProvider)) {
             installProvider(worldMapManager, PROVIDER_KEY, new MobMarkerProvider(mobMarkerManager, visibilityService));
         }
+
+        if (BetterMapCompatProvider.isAvailable()) {
+            if (providers == null || !(providers.get(BetterMapCompatProvider.PROVIDER_KEY) instanceof BetterMapCompatProvider)) {
+                installProvider(
+                        worldMapManager,
+                        BetterMapCompatProvider.PROVIDER_KEY,
+                        new BetterMapCompatProvider(mobMarkerManager, visibilityService));
+            }
+        }
     }
 
     private void installProvider(WorldMapManager worldMapManager, String key, WorldMapManager.MarkerProvider provider) {
@@ -256,26 +269,48 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
     }
 
     private Path resolveDataDirectory() {
-        Path dataDirectory = getDataDirectory();
-        if (dataDirectory == null) {
+        Path legacyDataDirectory = normalizeDataDirectory(getDataDirectory());
+        if (legacyDataDirectory == null) {
             throw new IllegalStateException("MobMapMarkers data directory is unavailable");
         }
 
-        Path legacyPluginDataDirectory = resolveLegacyPluginDataDirectory(dataDirectory, "MobMapMarkers");
-        migrateLegacyDataDirectory(legacyPluginDataDirectory, dataDirectory);
-        return dataDirectory;
+        Path quietDataDirectory = resolveQuietDataDirectory(legacyDataDirectory, "MobMapMarkers");
+        migrateLegacyDataDirectory(legacyDataDirectory, quietDataDirectory);
+        return quietDataDirectory;
     }
 
-    private Path resolveLegacyPluginDataDirectory(Path dataDirectory, String directoryName) {
-        Path modsDirectory = dataDirectory.getParent();
+    private Path normalizeDataDirectory(Path dataDirectory) {
+        return dataDirectory == null ? null : dataDirectory.toAbsolutePath().normalize();
+    }
+
+    private Path resolveConfigPath(Path dataDirectory) {
+        Path configDirectory = dataDirectory.resolve("config");
+        Path configPath = configDirectory.resolve(CONFIG_FILE_NAME);
+        Path legacyConfigPath = dataDirectory.resolve(LEGACY_CONFIG_FILE_NAME);
+
+        try {
+            Files.createDirectories(configDirectory);
+            if (Files.exists(legacyConfigPath) && Files.notExists(configPath)) {
+                Files.move(legacyConfigPath, configPath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException exception) {
+            getLogger().at(Level.WARNING).log(
+                    "[MobMapMarkers] Failed to migrate config path: " + exception.getMessage());
+        }
+
+        return configPath;
+    }
+
+    private Path resolveQuietDataDirectory(Path legacyDataDirectory, String directoryName) {
+        Path modsDirectory = legacyDataDirectory.getParent();
         if (modsDirectory == null || modsDirectory.getFileName() == null
                 || !"mods".equalsIgnoreCase(modsDirectory.getFileName().toString())) {
-            return dataDirectory;
+            return legacyDataDirectory;
         }
 
         Path worldRoot = modsDirectory.getParent();
         if (worldRoot == null) {
-            return dataDirectory;
+            return legacyDataDirectory;
         }
 
         return worldRoot.resolve("plugins").resolve(directoryName);

@@ -9,11 +9,9 @@ import com.hypixel.hytale.server.core.util.PositionUtil;
 import dev.thenexusgates.mobmapmarkers.catalog.MobNameLocalization;
 
 import java.lang.reflect.Field;
-import java.util.logging.Logger;
 
 public final class MobMapMarkerSupport {
 
-    private static final Logger LOGGER = Logger.getLogger(MobMapMarkerSupport.class.getName());
     public static final String MARKER_PREFIX = "MobMapMarker-";
     private static final Field CLIENT_HAS_WORLDMAP_VISIBLE_FIELD = resolveClientHasWorldMapVisibleField();
 
@@ -38,7 +36,6 @@ public final class MobMapMarkerSupport {
 
             return field.getBoolean(tracker);
         } catch (ReflectiveOperationException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to read world map visibility: " + e.getMessage());
             return false;
         }
     }
@@ -84,7 +81,6 @@ public final class MobMapMarkerSupport {
             field.setAccessible(true);
             return field;
         } catch (ReflectiveOperationException e) {
-            LOGGER.warning("[MobMapMarkers] WorldMapTracker.clientHasWorldMapVisible is unavailable: " + e.getMessage());
             return null;
         }
     }

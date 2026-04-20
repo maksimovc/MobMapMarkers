@@ -14,11 +14,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Locale;
-import java.util.logging.Logger;
 
 public final class MobMapImageProcessor {
-
-    private static final Logger LOGGER = Logger.getLogger(MobMapImageProcessor.class.getName());
 
     private MobMapImageProcessor() {
     }
@@ -65,7 +62,6 @@ public final class MobMapImageProcessor {
             ImageIO.write(out, "PNG", baos);
             return baos.toByteArray();
         } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to create fallback marker PNG: " + e.getMessage());
             return new byte[0];
         }
     }
@@ -130,7 +126,6 @@ public final class MobMapImageProcessor {
             ImageIO.write(out, "PNG", baos);
             return baos.toByteArray();
         } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to create minimap badge PNG: " + e.getMessage());
             return createFallbackMarkerPng(size);
         }
     }
@@ -192,7 +187,6 @@ public final class MobMapImageProcessor {
             ImageIO.write(out, "PNG", baos);
             return baos.toByteArray();
         } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to create generated mob marker PNG: " + e.getMessage());
             return createFallbackMarkerPng(size);
         }
     }
@@ -242,7 +236,6 @@ public final class MobMapImageProcessor {
             ImageIO.write(out, "PNG", baos);
             return baos.toByteArray();
         } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to create portrait mob marker PNG: " + e.getMessage());
             return createFallbackMarkerPng(size, contentScalePercent);
         }
     }

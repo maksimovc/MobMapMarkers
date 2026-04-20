@@ -10,8 +10,7 @@ import com.hypixel.hytale.server.core.asset.common.CommonAsset;
 import com.hypixel.hytale.server.core.io.PacketHandler;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import dev.thenexusgates.mobmapmarkers.MobMapMarkersPlugin;
-import dev.thenexusgates.mobmapmarkers.catalog.HytaleNpcPortraitResolver;
-import dev.thenexusgates.mobmapmarkers.catalog.MobArchiveIndex;
+import dev.thenexusgates.mobmapmarkers.catalog.HytaleMobIconResolver;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -99,33 +98,25 @@ public final class MobMapAssetPack {
         int normalizedSize = normalizeIconSize(size);
         int normalizedScale = normalizeContentScalePercent(contentScalePercent);
 
-        String portraitName = HytaleNpcPortraitResolver.resolvePortraitName(roleName);
-        if (portraitName != null) {
-            String imagePath = buildImagePath("mmm-official", portraitName, normalizedSize, normalizedScale, facingRight);
+        String iconEntryName = HytaleMobIconResolver.resolveIconEntryName(roleName);
+        if (iconEntryName != null) {
+            String imagePath = buildImagePath(
+                    "mmm-authored",
+                    stableKey(iconEntryName),
+                    normalizedSize,
+                    normalizedScale,
+                    facingRight);
             String resolvedImagePath = ensureGeneratedImage(imagePath, () -> {
-                byte[] portraitPng = HytaleNpcPortraitResolver.loadPortraitPngByPortraitName(portraitName);
-                if (portraitPng == null || portraitPng.length == 0) {
+                byte[] iconPng = HytaleMobIconResolver.loadIconPngByEntryName(iconEntryName);
+                if (iconPng == null || iconPng.length == 0) {
                     return null;
                 }
                 return MobMapImageProcessor.createMobPortraitMarkerPng(
-                        portraitPng,
+                        iconPng,
                         normalizedSize,
                         facingRight,
                         normalizedScale);
             });
-            if (resolvedImagePath != null) {
-                return resolvedImagePath;
-            }
-        }
-
-        byte[] modPortraitPng = MobArchiveIndex.loadModPortraitPngByRoleName(roleName);
-        if (modPortraitPng != null && modPortraitPng.length > 0) {
-            String imagePath = buildImagePath("mmm-mod", roleName, normalizedSize, normalizedScale, facingRight);
-            String resolvedImagePath = ensureGeneratedImage(imagePath, () -> MobMapImageProcessor.createMobPortraitMarkerPng(
-                    modPortraitPng,
-                    normalizedSize,
-                    facingRight,
-                    normalizedScale));
             if (resolvedImagePath != null) {
                 return resolvedImagePath;
             }
@@ -151,10 +142,6 @@ public final class MobMapAssetPack {
         int iconSize = normalizeIconSize(size);
         int normalizedScale = normalizeContentScalePercent(contentScalePercent);
         ensureFallbackIcons(iconSize, normalizedScale);
-        for (String portraitName : HytaleNpcPortraitResolver.getAvailablePortraitNames()) {
-            prewarmPortraitIcon(portraitName, iconSize, normalizedScale, true);
-            prewarmPortraitIcon(portraitName, iconSize, normalizedScale, false);
-        }
     }
 
     public static String toUiAssetPath(String imagePath) {
@@ -274,21 +261,6 @@ public final class MobMapAssetPack {
 
     private static String buildFallbackImagePath(int size, int contentScalePercent, boolean facingRight) {
         return buildImagePath("mmm-fallback", UNKNOWN_IMAGE_KEY, size, contentScalePercent, facingRight);
-    }
-
-    private static void prewarmPortraitIcon(String portraitName, int size, int contentScalePercent, boolean facingRight) {
-        String imagePath = buildImagePath("mmm-official", portraitName, size, contentScalePercent, facingRight);
-        ensureGeneratedImage(imagePath, () -> {
-            byte[] pngBytes = HytaleNpcPortraitResolver.loadPortraitPngByPortraitName(portraitName);
-            if (pngBytes == null || pngBytes.length == 0) {
-                return null;
-            }
-            return MobMapImageProcessor.createMobPortraitMarkerPng(
-                    pngBytes,
-                    size,
-                    facingRight,
-                    contentScalePercent);
-        });
     }
 
     private static String buildImagePath(String prefix, String key, int size, int contentScalePercent,
@@ -490,6 +462,7 @@ public final class MobMapAssetPack {
     private static final class ViewerDeliveryState {
 
         private final Set<String> deliveredAssets = ConcurrentHashMap.newKeySet();
+        private final LinkedHashMap<String, Boolean> activationBatch = new LinkedHashMap<>();
         private final LinkedHashMap<String, Boolean> currentBatch = new LinkedHashMap<>();
         private final LinkedHashMap<String, Boolean> queuedBatch = new LinkedHashMap<>();
 
@@ -500,6 +473,7 @@ public final class MobMapAssetPack {
             for (String assetPath : assetPaths) {
                 if (assetPath == null
                         || deliveredAssets.contains(assetPath)
+                        || activationBatch.containsKey(assetPath)
                         || currentBatch.containsKey(assetPath)
                         || queuedBatch.containsKey(assetPath)) {
                     continue;
@@ -517,15 +491,20 @@ public final class MobMapAssetPack {
         }
 
         private synchronized boolean hasPendingAssets() {
-            return !currentBatch.isEmpty() || !queuedBatch.isEmpty();
+            return !activationBatch.isEmpty() || !currentBatch.isEmpty() || !queuedBatch.isEmpty();
         }
 
         private synchronized boolean advancePhase() {
+            if (!activationBatch.isEmpty()) {
+                deliveredAssets.addAll(activationBatch.keySet());
+                activationBatch.clear();
+            }
+
             if (currentBatch.isEmpty()) {
                 return false;
             }
 
-            deliveredAssets.addAll(currentBatch.keySet());
+            activationBatch.putAll(currentBatch);
             currentBatch.clear();
             if (queuedBatch.isEmpty()) {
                 return false;

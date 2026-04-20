@@ -11,13 +11,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Logger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public final class HytaleNpcPortraitResolver {
 
-    private static final Logger LOGGER = Logger.getLogger(HytaleNpcPortraitResolver.class.getName());
     private static final String MEMORIES_PREFIX = "Common/UI/Custom/Pages/Memories/npcs/";
     private static final String PNG_SUFFIX = ".png";
     private static final String NOT_FOUND = "!";
@@ -27,7 +25,6 @@ public final class HytaleNpcPortraitResolver {
     private static final Map<String, List<String>> TOKENS_BY_PORTRAIT = new ConcurrentHashMap<>();
     private static final Map<String, byte[]> PORTRAIT_BYTES = new ConcurrentHashMap<>();
     private static final AtomicBoolean INDEXED = new AtomicBoolean(false);
-    private static final AtomicBoolean MISSING_ASSETS_ZIP_LOGGED = new AtomicBoolean(false);
 
     private HytaleNpcPortraitResolver() {
     }
@@ -78,7 +75,6 @@ public final class HytaleNpcPortraitResolver {
                 return bytes.clone();
             }
         } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to read NPC portrait from Assets.zip: " + e.getMessage());
             return null;
         }
     }
@@ -169,19 +165,10 @@ public final class HytaleNpcPortraitResolver {
                 }
             }
         } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to index official NPC portraits: " + e.getMessage());
         }
     }
 
     private static Path resolveAssetsZipPath() {
-        Path zipPath = HytaleInstallLocator.resolveAssetsZipPath();
-        if (zipPath != null) {
-            return zipPath;
-        }
-
-        if (MISSING_ASSETS_ZIP_LOGGED.compareAndSet(false, true)) {
-            LOGGER.warning("[MobMapMarkers] Could not locate Hytale Assets.zip for official NPC portraits; generated fallback icons will be used.");
-        }
-        return null;
+        return HytaleInstallLocator.resolveAssetsZipPath();
     }
 }

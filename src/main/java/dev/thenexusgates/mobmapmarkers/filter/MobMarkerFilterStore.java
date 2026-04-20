@@ -15,11 +15,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Logger;
 
 public final class MobMarkerFilterStore {
-
-    private static final Logger LOGGER = Logger.getLogger(MobMarkerFilterStore.class.getName());
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private final Path playersRoot;
@@ -137,7 +134,6 @@ public final class MobMarkerFilterStore {
             MobMarkerFilterProfile profile = GSON.fromJson(reader, MobMarkerFilterProfile.class);
             return profile == null ? new MobMarkerFilterProfile().normalize() : profile.normalize();
         } catch (IOException | RuntimeException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to read player filter profile " + profilePath + ": " + e.getMessage());
             return new MobMarkerFilterProfile().normalize();
         }
     }
@@ -150,7 +146,6 @@ public final class MobMarkerFilterStore {
                 GSON.toJson(profile.normalize(), writer);
             }
         } catch (IOException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to save player filter profile " + profilePath + ": " + e.getMessage());
         }
     }
 

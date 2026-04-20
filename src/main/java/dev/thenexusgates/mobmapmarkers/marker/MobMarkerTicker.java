@@ -15,25 +15,28 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.server.npc.entities.NPCEntity;
 import com.hypixel.hytale.server.npc.role.Role;
 import dev.thenexusgates.mobmapmarkers.catalog.MobMarkerNames;
+import dev.thenexusgates.mobmapmarkers.catalog.MobPortraitMatcher;
 import dev.thenexusgates.mobmapmarkers.tracking.LivePlayerTracker;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
-import java.util.logging.Logger;
 
 public final class MobMarkerTicker {
 
-    private static final Logger LOGGER = Logger.getLogger(MobMarkerTicker.class.getName());
+    private static final Archetype<EntityStore> NPC_QUERY = Archetype.of(
+            NPCEntity.getComponentType(),
+            TransformComponent.getComponentType());
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "MobMapMarkers-MobTicker");
@@ -41,6 +44,7 @@ public final class MobMarkerTicker {
         return thread;
     });
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final Map<String, String> displayNameByRoleName = new ConcurrentHashMap<>();
     private final MobMarkerManager manager;
     private final long intervalMs;
 
@@ -95,11 +99,7 @@ public final class MobMarkerTicker {
                     cachePlayerPositions(world);
                 });
             } catch (RejectedExecutionException e) {
-                LOGGER.fine("[MobMapMarkers] Mob scan skipped for world "
-                        + world.getName() + " because the world executor is shutting down.");
             } catch (RuntimeException e) {
-                LOGGER.warning("[MobMapMarkers] Failed to schedule mob scan for world "
-                        + world.getName() + ": " + e.getMessage());
             }
         }
     }
@@ -112,47 +112,49 @@ public final class MobMarkerTicker {
                 return;
             }
 
-            Store store = entityStore.getStore();
+            Store<EntityStore> store = entityStore.getStore();
             if (store == null) {
                 manager.setMobData(world.getName(), List.of());
                 return;
             }
 
             List<MobMarkerManager.MobMarkerSnapshot> snapshots = new ArrayList<>();
-            Archetype npcArchetype = Archetype.of(NPCEntity.getComponentType());
+                BiConsumer<ArchetypeChunk<EntityStore>, CommandBuffer<EntityStore>> snapshotCollector =
+                    (chunk, commandBuffer) -> collectMobSnapshots(chunk, snapshots);
             store.forEachChunk(
-                    npcArchetype,
-                    (BiConsumer<ArchetypeChunk, CommandBuffer>) (chunk, commandBuffer) ->
-                        collectMobSnapshots(store, chunk, snapshots));
+                    NPC_QUERY,
+                    snapshotCollector);
             manager.setMobData(world.getName(), snapshots);
         } catch (RuntimeException e) {
-            LOGGER.warning("[MobMapMarkers] Mob scan failed for world "
-                    + world.getName() + ": " + e.getMessage());
         }
     }
 
-    private void collectMobSnapshots(Store store, ArchetypeChunk chunk, List<MobMarkerManager.MobMarkerSnapshot> snapshots) {
+    private void collectMobSnapshots(
+            ArchetypeChunk<EntityStore> chunk,
+            List<MobMarkerManager.MobMarkerSnapshot> snapshots) {
         int size = chunk.size();
         for (int index = 0; index < size; index++) {
             try {
-                MobMarkerManager.MobMarkerSnapshot snapshot = extractSnapshot(store, chunk, index);
+                MobMarkerManager.MobMarkerSnapshot snapshot = extractSnapshot(chunk, index);
                 if (snapshot != null) {
                     snapshots.add(snapshot);
                 }
             } catch (RuntimeException e) {
-                LOGGER.fine("[MobMapMarkers] Skipped NPC during mob scan: " + e.getMessage());
             }
         }
     }
 
-    private MobMarkerManager.MobMarkerSnapshot extractSnapshot(Store store, ArchetypeChunk chunk, int index) {
-        NPCEntity npcEntity = (NPCEntity) chunk.getComponent(index, NPCEntity.getComponentType());
+    private MobMarkerManager.MobMarkerSnapshot extractSnapshot(ArchetypeChunk<EntityStore> chunk, int index) {
+        NPCEntity npcEntity = chunk.getComponent(index, NPCEntity.getComponentType());
         if (npcEntity == null) {
             return null;
         }
 
         String roleName = npcEntity.getRoleName();
         if (roleName == null || roleName.isBlank()) {
+            return null;
+        }
+        if (MobPortraitMatcher.isExcludedRole(roleName)) {
             return null;
         }
 
@@ -162,14 +164,12 @@ public final class MobMarkerTicker {
             nameTranslationKey = "server.npcRoles." + roleName + ".name";
         }
 
-        Ref ref = chunk.getReferenceTo(index);
+        Ref<EntityStore> ref = chunk.getReferenceTo(index);
         if (ref == null || !ref.isValid()) {
             return null;
         }
 
-        TransformComponent transformComponent = (TransformComponent) store.getComponent(
-                ref,
-                TransformComponent.getComponentType());
+        TransformComponent transformComponent = chunk.getComponent(index, TransformComponent.getComponentType());
         if (transformComponent == null || transformComponent.getPosition() == null) {
             return null;
         }
@@ -179,13 +179,17 @@ public final class MobMarkerTicker {
                 ? new Vector3f(transformComponent.getRotation())
                 : null;
         return new MobMarkerManager.MobMarkerSnapshot(
-                String.valueOf(ref.getIndex()),
+                ref.getIndex(),
                 roleName,
                 nameTranslationKey,
-            MobMarkerNames.formatRoleName(roleName),
+                resolveDisplayName(roleName),
                 position,
                 rotation,
                 true);
+    }
+
+    private String resolveDisplayName(String roleName) {
+        return displayNameByRoleName.computeIfAbsent(roleName, MobMarkerNames::formatRoleName);
     }
 
     private void cachePlayerPositions(World world) {
@@ -207,8 +211,6 @@ public final class MobMarkerTicker {
 
             manager.setPlayerPositions(world.getName(), positions);
         } catch (RuntimeException e) {
-            LOGGER.warning("[MobMapMarkers] Failed to cache player positions for world "
-                    + world.getName() + ": " + e.getMessage());
         }
     }
 }

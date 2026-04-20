@@ -19,6 +19,10 @@ public final class MobCatalogEntry {
         this.facingRight = facingRight;
     }
 
+    public MobCatalogEntry(String mobKey, String roleName, String nameTranslationKey, String fallbackDisplayName) {
+        this(mobKey, roleName, nameTranslationKey, fallbackDisplayName, false);
+    }
+
     public static MobCatalogEntry fallback(String rawMobKey) {
         String normalizedKey = MobMarkerKeys.normalize(rawMobKey);
         String roleName = rawMobKey == null || rawMobKey.isBlank() ? "mob" : rawMobKey;

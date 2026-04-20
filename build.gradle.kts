@@ -9,7 +9,8 @@ plugins {
 }
 
 group = "dev.thenexusgates"
-version = "1.6.0"
+version = "1.6.3"
+description = "Mob markers for the Hytale world map, BetterMap radar, and optional FastMiniMap overlays."
 
 val fastMiniMapJarDir = layout.projectDirectory.dir("../FastMiniMap/build/libs").asFile
 
@@ -50,4 +51,11 @@ tasks.withType<Test>().configureEach {
 tasks.jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     archiveFileName.set("MobMapMarkers-${version}.jar")
+    manifest {
+        attributes(
+            "Implementation-Title" to project.name,
+            "Implementation-Version" to project.version,
+            "Implementation-Vendor" to project.group
+        )
+    }
 }
