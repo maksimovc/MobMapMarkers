@@ -45,7 +45,7 @@ import java.util.logging.Level;
 public final class MobMapMarkersPlugin extends JavaPlugin {
 
     static final String PROVIDER_KEY = "mobMapMarkers";
-    private static final String VERSION = "1.6.3";
+    private static final String VERSION = "1.6.4";
     private static final String LEGACY_CONFIG_FILE_NAME = "mobmapmarkers-config.json";
     private static final String CONFIG_FILE_NAME = "mobmapmarkers.json";
 

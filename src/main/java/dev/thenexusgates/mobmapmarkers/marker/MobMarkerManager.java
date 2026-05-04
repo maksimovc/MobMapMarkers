@@ -18,7 +18,7 @@ public final class MobMarkerManager {
 
     private final Map<String, List<MobMarkerSnapshot>> mobDataByWorld = new ConcurrentHashMap<>();
     private final Map<String, Map<UUID, Vector3d>> playerPositionsByWorld = new ConcurrentHashMap<>();
-    private final Map<String, Map<Long, FacingState>> facingStateByWorld = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, FacingState>> facingStateByWorld = new ConcurrentHashMap<>();
     private final Map<String, MobCatalogEntry> catalogByMobKey = new ConcurrentHashMap<>();
 
     public MobMarkerManager() {
@@ -26,11 +26,11 @@ public final class MobMarkerManager {
 
     public void setMobData(String worldName, Collection<MobMarkerSnapshot> snapshots) {
         List<MobMarkerSnapshot> copied = new ArrayList<>(snapshots != null ? snapshots.size() : 0);
-        Map<Long, FacingState> previousFacing = facingStateByWorld.getOrDefault(worldName, Map.of());
-        Map<Long, FacingState> nextFacing = new HashMap<>(copied.size());
+        Map<String, FacingState> previousFacing = facingStateByWorld.getOrDefault(worldName, Map.of());
+        Map<String, FacingState> nextFacing = new HashMap<>(copied.size());
         if (snapshots != null) {
             for (MobMarkerSnapshot snapshot : snapshots) {
-                if (snapshot == null || snapshot.position() == null) {
+                if (snapshot == null || snapshot.id() == null || snapshot.id().isBlank() || snapshot.position() == null) {
                     continue;
                 }
 
@@ -108,7 +108,7 @@ public final class MobMarkerManager {
         return List.copyOf(catalogByMobKey.values());
     }
 
-    public record MobMarkerSnapshot(long id, String roleName, String nameTranslationKey, String displayName,
+    public record MobMarkerSnapshot(String id, String roleName, String nameTranslationKey, String displayName,
                                     Vector3d position, Vector3f rotation, boolean facingRight) {
     }
 

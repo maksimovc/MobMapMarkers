@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.6.4 - 2026-05-04
+
+Simple summary of changes since the previous `1.6.3` repo state.
+
+### Highlights
+
+- Fixed mob markers so identical mobs no longer reuse one marker and jump across the big map
+- Switched internal mob marker IDs to stable entity UUIDs instead of transient runtime indexes
+- Reduced the default mob scan interval to `50ms` for faster map updates
+- Added config migration for older installs that still had the old `1000ms` scan default
+- Updated release docs, config examples, and artifact references for `1.6.4`
+
+### Configuration and operations
+
+- Active artifact name: `MobMapMarkers-1.6.4.jar`
+- Config schema version: `3`
+- Config path: `UserData/Saves/<World>/mods/thenexusgates_MobMapMarkers/config/mobmapmarkers.json`
+- Supported server baseline: `2026.03.26-89796e57b`
+- Java requirement: `25`
+
+### Validation
+
+- `gradlew.bat build`
+
 ## 1.6.3 - 2026-04-20
 
 This file fixes the release record for the current `1.6.3` codebase.

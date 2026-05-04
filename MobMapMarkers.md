@@ -1,10 +1,10 @@
 # MobMapMarkers
 
-Release target: `1.6.3`
+Release target: `1.6.4`
 
 MobMapMarkers shows nearby mobs as icon markers on the world map (M key), BetterMap radar, and optionally on the minimap when [FastMiniMap](https://www.curseforge.com/hytale/mods/fast-mini-map) is installed.
 
-This document is the short-form release sheet for version `1.6.3`.
+This document is the short-form release sheet for version `1.6.4`.
 
 ## Features
 
@@ -17,8 +17,10 @@ This document is the short-form release sheet for version `1.6.3`.
 - Paginated `/mobmap` filter UI with lazy icon loading
 - **Minimap overlay** — mob icons appear on the minimap when FastMiniMap is installed and enabled in config
 
-## 1.6.3 highlights
+## 1.6.4 highlights
 
+- Stable per-entity marker IDs so same-type mobs do not steal each other's map icon
+- Faster `50ms` default scan interval with config migration for older installs
 - Stable phased asset delivery with no fixed-delay timer dependency
 - Icon resolution through `Assets.zip` plus authored role/model inheritance
 - Additional mod archive lookup from co-located archives or explicit archive overrides
@@ -27,7 +29,7 @@ This document is the short-form release sheet for version `1.6.3`.
 
 ## Installation
 
-1. Copy `MobMapMarkers-1.6.3.jar` to `UserData/Saves/<World>/mods/`
+1. Copy `MobMapMarkers-1.6.4.jar` to `UserData/Saves/<World>/mods/`
 2. Start the server — config is auto-generated on first run
 
 ## Configuration
@@ -36,7 +38,7 @@ Config path: `UserData/Saves/<World>/mods/thenexusgates_MobMapMarkers/config/mob
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `configVersion` | `2` | Internal schema version written by the mod |
+| `configVersion` | `3` | Internal schema version written by the mod |
 | `enableMobMarkers` | `true` | Enable/disable all mob markers |
 | `enableMobMapCommand` | `true` | Allow players to open the `/mobmap` GUI; set to `false` to disable the GUI entirely |
 | `showMobNames` | `true` | Show mob name below icon |
@@ -47,7 +49,7 @@ Config path: `UserData/Saves/<World>/mods/thenexusgates_MobMapMarkers/config/mob
 | `mobMarkerSize` | `44` | Icon render resolution in pixels, clamped to `16..256` |
 | `mobIconContentScalePercent` | `96` | How much of the marker slot the portrait fills, clamped to `50..100` |
 | `maxVisibleMobMarkers` | `128` | Nearest-first cap on visible markers; `0` disables the cap |
-| `scanIntervalMs` | `1000` | How often mobs are scanned in milliseconds, clamped to `250..60000` |
+| `scanIntervalMs` | `50` | How often mobs are scanned in milliseconds, clamped to `50..60000` |
 | `renderUnknownMobFallbacks` | `true` | Generate icons for unknown mob types |
 
 ## Commands
@@ -81,7 +83,7 @@ Config path: `UserData/Saves/<World>/mods/thenexusgates_MobMapMarkers/config/mob
 - Reads mod archives next to the installed `MobMapMarkers` jar
 - Accepts extra mod archive paths through `hytale.mod_archives` / `HYTALE_MOD_ARCHIVES`
 
-Artifact: `build/libs/MobMapMarkers-1.6.3.jar`
+Artifact: `build/libs/MobMapMarkers-1.6.4.jar`
 
 ## Recommended mods
 

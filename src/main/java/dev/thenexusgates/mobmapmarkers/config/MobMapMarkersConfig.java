@@ -13,7 +13,8 @@ import java.nio.file.Path;
 
 public final class MobMapMarkersConfig {
 
-    private static final int CONFIG_VERSION = 2;
+    private static final int CONFIG_VERSION = 3;
+    private static final int DEFAULT_SCAN_INTERVAL_MS = 50;
     private static final Gson GSON = new GsonBuilder()
             .disableHtmlEscaping()
             .setPrettyPrinting()
@@ -29,7 +30,7 @@ public final class MobMapMarkersConfig {
     public int mobMarkerSize = 44;
     public int mobIconContentScalePercent = 96;
     public int maxVisibleMobMarkers = 128;
-    public int scanIntervalMs = 1000;
+    public int scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS;
     public boolean renderUnknownMobFallbacks = true;
 
     private MobMapMarkersConfig() {
@@ -46,6 +47,7 @@ public final class MobMapMarkersConfig {
             String json = Files.readString(configPath, StandardCharsets.UTF_8);
             JsonObject root = parseJsonObject(json);
             if (root != null) {
+                int previousConfigVersion = readInt(root, "configVersion", 1);
                 config.enableMobMarkers = readBool(root, "enableMobMarkers", config.enableMobMarkers);
                 config.enableMobMapCommand = readBool(root, "enableMobMapCommand", config.enableMobMapCommand);
                 config.showMobNames = readBool(root, "showMobNames", config.showMobNames);
@@ -67,6 +69,9 @@ public final class MobMapMarkersConfig {
                         root,
                         "renderUnknownMobFallbacks",
                         config.renderUnknownMobFallbacks);
+                if (previousConfigVersion < 3 && config.scanIntervalMs == 1000) {
+                    config.scanIntervalMs = DEFAULT_SCAN_INTERVAL_MS;
+                }
             }
         } catch (IOException e) {
         }
@@ -81,7 +86,7 @@ public final class MobMapMarkersConfig {
         config.mobMarkerSize = clamp(config.mobMarkerSize, 16, 256);
         config.mobIconContentScalePercent = clamp(config.mobIconContentScalePercent, 50, 100);
         config.maxVisibleMobMarkers = Math.max(0, config.maxVisibleMobMarkers);
-        config.scanIntervalMs = clamp(config.scanIntervalMs, 250, 60000);
+        config.scanIntervalMs = clamp(config.scanIntervalMs, DEFAULT_SCAN_INTERVAL_MS, 60000);
     }
 
     private static int clamp(int value, int min, int max) {

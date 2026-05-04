@@ -7,6 +7,7 @@ import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.math.vector.Vector3d;
 import com.hypixel.hytale.math.vector.Vector3f;
+import com.hypixel.hytale.server.core.entity.UUIDComponent;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.Universe;
@@ -34,6 +35,8 @@ import java.util.function.BiConsumer;
 
 public final class MobMarkerTicker {
 
+    private static final long MIN_SCAN_INTERVAL_MS = 50L;
+
     private static final Archetype<EntityStore> NPC_QUERY = Archetype.of(
             NPCEntity.getComponentType(),
             TransformComponent.getComponentType());
@@ -50,7 +53,7 @@ public final class MobMarkerTicker {
 
     public MobMarkerTicker(MobMarkerManager manager, int intervalMs) {
         this.manager = manager;
-        this.intervalMs = Math.max(250L, intervalMs);
+        this.intervalMs = Math.max(MIN_SCAN_INTERVAL_MS, intervalMs);
     }
 
     public void start() {
@@ -169,6 +172,11 @@ public final class MobMarkerTicker {
             return null;
         }
 
+        String snapshotId = resolveSnapshotId(chunk, index, ref);
+        if (snapshotId == null) {
+            return null;
+        }
+
         TransformComponent transformComponent = chunk.getComponent(index, TransformComponent.getComponentType());
         if (transformComponent == null || transformComponent.getPosition() == null) {
             return null;
@@ -179,13 +187,22 @@ public final class MobMarkerTicker {
                 ? new Vector3f(transformComponent.getRotation())
                 : null;
         return new MobMarkerManager.MobMarkerSnapshot(
-                ref.getIndex(),
+                snapshotId,
                 roleName,
                 nameTranslationKey,
                 resolveDisplayName(roleName),
                 position,
                 rotation,
                 true);
+    }
+
+    private static String resolveSnapshotId(ArchetypeChunk<EntityStore> chunk, int index, Ref<EntityStore> ref) {
+        UUIDComponent uuidComponent = chunk.getComponent(index, UUIDComponent.getComponentType());
+        if (uuidComponent != null && uuidComponent.getUuid() != null) {
+            return uuidComponent.getUuid().toString();
+        }
+
+        return "idx-" + ref.getIndex();
     }
 
     private String resolveDisplayName(String roleName) {
