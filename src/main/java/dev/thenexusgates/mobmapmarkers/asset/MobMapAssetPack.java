@@ -44,9 +44,11 @@ public final class MobMapAssetPack {
     private static final int MIN_ICON_SIZE = 16;
     private static final int MIN_CONTENT_SCALE_PERCENT = 50;
     private static final int MAX_CONTENT_SCALE_PERCENT = 100;
+    private static final int MAX_ASSETS_PER_DELIVERY_PHASE = 8;
 
     private static final ConcurrentHashMap<String, MobMarkerAsset> GENERATED_ASSETS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, ViewerDeliveryState> DELIVERY_BY_VIEWER = new ConcurrentHashMap<>();
+    private static final Set<String> PENDING_GENERATIONS = ConcurrentHashMap.newKeySet();
 
     private static volatile boolean initialized;
     private static Path dataRoot;
@@ -85,6 +87,7 @@ public final class MobMapAssetPack {
     public static void shutdown() {
         DELIVERY_BY_VIEWER.clear();
         GENERATED_ASSETS.clear();
+        PENDING_GENERATIONS.clear();
 
         initialized = false;
         dataRoot = null;
@@ -93,10 +96,44 @@ public final class MobMapAssetPack {
     public static String ensureMobIcon(String roleName, String displayName, String localizedAssetKey,
                                        int size, int contentScalePercent,
                                        boolean facingRight, boolean renderFallback) {
+        return ensureMobIconInternal(
+                roleName,
+                displayName,
+                localizedAssetKey,
+                size,
+                contentScalePercent,
+                facingRight,
+                renderFallback,
+                false);
+    }
+
+    public static String ensureMobIconAsync(String roleName, String displayName, String localizedAssetKey,
+                                            int size, int contentScalePercent,
+                                            boolean facingRight, boolean renderFallback) {
+        return ensureMobIconInternal(
+                roleName,
+                displayName,
+                localizedAssetKey,
+                size,
+                contentScalePercent,
+                facingRight,
+                renderFallback,
+                true);
+    }
+
+    private static String ensureMobIconInternal(String roleName, String displayName, String localizedAssetKey,
+                                                int size, int contentScalePercent,
+                                                boolean facingRight, boolean renderFallback,
+                                                boolean asyncOnly) {
         ensureInitialized();
 
         int normalizedSize = normalizeIconSize(size);
         int normalizedScale = normalizeContentScalePercent(contentScalePercent);
+        String fallbackImagePath = null;
+        if (renderFallback) {
+            ensureFallbackIcons(normalizedSize, normalizedScale);
+            fallbackImagePath = buildFallbackImagePath(normalizedSize, normalizedScale, facingRight);
+        }
 
         String iconEntryName = HytaleMobIconResolver.resolveIconEntryName(roleName);
         if (iconEntryName != null) {
@@ -116,9 +153,12 @@ public final class MobMapAssetPack {
                         normalizedSize,
                         facingRight,
                         normalizedScale);
-            });
+            }, asyncOnly);
             if (resolvedImagePath != null) {
                 return resolvedImagePath;
+            }
+            if (asyncOnly) {
+                return fallbackImagePath != null ? fallbackImagePath : imagePath;
             }
         }
 
@@ -127,13 +167,18 @@ public final class MobMapAssetPack {
         }
 
         if (roleName == null || roleName.isBlank()) {
-            ensureFallbackIcons(normalizedSize, normalizedScale);
-            return buildFallbackImagePath(normalizedSize, normalizedScale, facingRight);
+            return fallbackImagePath;
         }
 
         String imagePath = buildGeneratedImagePath(roleName, localizedAssetKey, normalizedSize, normalizedScale, facingRight);
-        return ensureGeneratedImage(imagePath,
-                () -> MobMapImageProcessor.createMobMarkerPng(roleName, displayName, normalizedSize));
+        String resolvedImagePath = ensureGeneratedImage(
+                imagePath,
+                () -> MobMapImageProcessor.createMobMarkerPng(roleName, displayName, normalizedSize),
+                asyncOnly);
+        if (resolvedImagePath != null) {
+            return resolvedImagePath;
+        }
+        return asyncOnly ? fallbackImagePath : null;
     }
 
     public static void prewarmMobIcons(int size, int contentScalePercent) {
@@ -253,10 +298,12 @@ public final class MobMapAssetPack {
     private static void ensureFallbackIcons(int size, int contentScalePercent) {
         ensureGeneratedImage(
                 buildFallbackImagePath(size, contentScalePercent, false),
-                () -> MobMapImageProcessor.createFallbackMarkerPng(size, contentScalePercent));
+            () -> MobMapImageProcessor.createFallbackMarkerPng(size, contentScalePercent),
+            false);
         ensureGeneratedImage(
                 buildFallbackImagePath(size, contentScalePercent, true),
-                () -> MobMapImageProcessor.createFallbackMarkerPng(size, contentScalePercent));
+            () -> MobMapImageProcessor.createFallbackMarkerPng(size, contentScalePercent),
+            false);
     }
 
     private static String buildFallbackImagePath(int size, int contentScalePercent, boolean facingRight) {
@@ -322,13 +369,21 @@ public final class MobMapAssetPack {
         }
     }
 
-    private static String ensureGeneratedImage(String imagePath, Supplier<byte[]> pngFactory) {
+    private static String ensureGeneratedImage(String imagePath, Supplier<byte[]> pngFactory, boolean asyncOnly) {
         if (imagePath == null || imagePath.isBlank()) {
             return null;
         }
 
         String assetPath = toUiAssetPath(imagePath);
         if (assetPath == null || assetPath.isBlank()) {
+            return null;
+        }
+
+        if (asyncOnly) {
+            if (GENERATED_ASSETS.containsKey(assetPath)) {
+                return imagePath;
+            }
+            scheduleGeneratedImage(assetPath, pngFactory);
             return null;
         }
 
@@ -340,6 +395,39 @@ public final class MobMapAssetPack {
             return new MobMarkerAsset(assetPath, Arrays.copyOf(pngBytes, pngBytes.length));
         });
         return asset != null ? imagePath : null;
+    }
+
+    private static void scheduleGeneratedImage(String assetPath, Supplier<byte[]> pngFactory) {
+        if (assetPath == null || assetPath.isBlank() || pngFactory == null || GENERATED_ASSETS.containsKey(assetPath)) {
+            return;
+        }
+        if (!PENDING_GENERATIONS.add(assetPath)) {
+            return;
+        }
+
+        MobMapMarkersPlugin plugin = MobMapMarkersPlugin.getInstance();
+        if (plugin == null) {
+            PENDING_GENERATIONS.remove(assetPath);
+            return;
+        }
+
+        plugin.runUiTask(() -> {
+            try {
+                if (GENERATED_ASSETS.containsKey(assetPath)) {
+                    return;
+                }
+                byte[] pngBytes = pngFactory.get();
+                if (pngBytes == null || pngBytes.length == 0) {
+                    return;
+                }
+                GENERATED_ASSETS.putIfAbsent(
+                        assetPath,
+                        new MobMarkerAsset(assetPath, Arrays.copyOf(pngBytes, pngBytes.length)));
+            } catch (RuntimeException ignored) {
+            } finally {
+                PENDING_GENERATIONS.remove(assetPath);
+            }
+        });
     }
 
     private static String computeAssetHash(byte[] bytes) {
@@ -469,8 +557,15 @@ public final class MobMapAssetPack {
         private synchronized DeliveryReservation reserve(Collection<String> assetPaths) {
             LinkedHashMap<String, Boolean> targetBatch = currentBatch.isEmpty() ? currentBatch : queuedBatch;
             boolean rebuildRequired = targetBatch == currentBatch;
+            int remainingCapacity = MAX_ASSETS_PER_DELIVERY_PHASE - targetBatch.size();
+            if (remainingCapacity <= 0) {
+                return new DeliveryReservation(Set.of(), false);
+            }
             LinkedHashMap<String, Boolean> reserved = new LinkedHashMap<>();
             for (String assetPath : assetPaths) {
+                if (reserved.size() >= remainingCapacity) {
+                    break;
+                }
                 if (assetPath == null
                         || deliveredAssets.contains(assetPath)
                         || activationBatch.containsKey(assetPath)

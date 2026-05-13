@@ -20,14 +20,17 @@ public final class MobMarkerManager {
     private final Map<String, Map<UUID, Vector3d>> playerPositionsByWorld = new ConcurrentHashMap<>();
     private final Map<String, Map<String, FacingState>> facingStateByWorld = new ConcurrentHashMap<>();
     private final Map<String, MobCatalogEntry> catalogByMobKey = new ConcurrentHashMap<>();
+    private final Map<String, String> normalizedMobKeyByRoleName = new ConcurrentHashMap<>();
 
     public MobMarkerManager() {
     }
 
     public void setMobData(String worldName, Collection<MobMarkerSnapshot> snapshots) {
-        List<MobMarkerSnapshot> copied = new ArrayList<>(snapshots != null ? snapshots.size() : 0);
+        int estimatedSize = snapshots != null ? snapshots.size() : 0;
+        List<MobMarkerSnapshot> copied = new ArrayList<>(estimatedSize);
         Map<String, FacingState> previousFacing = facingStateByWorld.getOrDefault(worldName, Map.of());
-        Map<String, FacingState> nextFacing = new HashMap<>(copied.size());
+        Map<String, FacingState> nextFacing = new HashMap<>(estimatedSize);
+        Map<String, MobCatalogEntry> catalogUpdates = new HashMap<>();
         if (snapshots != null) {
             for (MobMarkerSnapshot snapshot : snapshots) {
                 if (snapshot == null || snapshot.id() == null || snapshot.id().isBlank() || snapshot.position() == null) {
@@ -54,9 +57,9 @@ public final class MobMarkerManager {
                                 facingRight);
                 copied.add(preparedSnapshot);
 
-                String mobKey = MobMarkerKeys.normalize(snapshot.roleName());
-                if (mobKey != null) {
-                    catalogByMobKey.put(mobKey, new MobCatalogEntry(
+                String mobKey = normalizeMobKey(snapshot.roleName());
+                if (mobKey != null && !catalogUpdates.containsKey(mobKey)) {
+                    catalogUpdates.put(mobKey, new MobCatalogEntry(
                             mobKey,
                             snapshot.roleName(),
                             snapshot.nameTranslationKey(),
@@ -66,8 +69,50 @@ public final class MobMarkerManager {
             }
         }
 
+        applyCatalogUpdates(catalogUpdates);
         mobDataByWorld.put(worldName, copied.isEmpty() ? List.of() : List.copyOf(copied));
-        facingStateByWorld.put(worldName, nextFacing.isEmpty() ? Map.of() : Map.copyOf(nextFacing));
+        facingStateByWorld.put(worldName, nextFacing.isEmpty() ? Map.of() : nextFacing);
+    }
+
+    private String normalizeMobKey(String roleName) {
+        if (roleName == null) {
+            return null;
+        }
+
+        String trimmedRoleName = roleName.trim();
+        if (trimmedRoleName.isEmpty()) {
+            return null;
+        }
+
+        return normalizedMobKeyByRoleName.computeIfAbsent(trimmedRoleName, MobMarkerKeys::normalize);
+    }
+
+    private void applyCatalogUpdates(Map<String, MobCatalogEntry> catalogUpdates) {
+        if (catalogUpdates.isEmpty()) {
+            return;
+        }
+
+        catalogUpdates.forEach((mobKey, nextEntry) -> {
+            MobCatalogEntry currentEntry = catalogByMobKey.get(mobKey);
+            if (!sameCatalogEntry(currentEntry, nextEntry)) {
+                catalogByMobKey.put(mobKey, nextEntry);
+            }
+        });
+    }
+
+    private static boolean sameCatalogEntry(MobCatalogEntry currentEntry, MobCatalogEntry nextEntry) {
+        if (currentEntry == nextEntry) {
+            return true;
+        }
+        if (currentEntry == null || nextEntry == null) {
+            return false;
+        }
+
+        return java.util.Objects.equals(currentEntry.mobKey(), nextEntry.mobKey())
+                && java.util.Objects.equals(currentEntry.roleName(), nextEntry.roleName())
+                && java.util.Objects.equals(currentEntry.nameTranslationKey(), nextEntry.nameTranslationKey())
+                && java.util.Objects.equals(currentEntry.fallbackDisplayName(), nextEntry.fallbackDisplayName())
+                && currentEntry.facingRight() == nextEntry.facingRight();
     }
 
     public List<MobMarkerSnapshot> getMobData(String worldName) {

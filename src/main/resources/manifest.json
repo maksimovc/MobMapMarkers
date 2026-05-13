@@ -1,7 +1,7 @@
 {
   "Group": "thenexusgates",
   "Name": "MobMapMarkers",
-  "Version": "1.6.4",
+  "Version": "1.6.5",
   "Description": "Mob markers for the Hytale world map, BetterMap radar, and optional FastMiniMap overlays with JSON-based icon resolution and per-player /mobmap filters.",
   "Authors": [
     {

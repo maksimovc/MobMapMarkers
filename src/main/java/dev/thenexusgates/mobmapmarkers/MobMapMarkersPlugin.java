@@ -1,5 +1,7 @@
 package dev.thenexusgates.mobmapmarkers;
 
+import javax.imageio.ImageIO;
+
 import com.hypixel.hytale.server.core.event.events.player.AddPlayerToWorldEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerReadyEvent;
@@ -45,7 +47,7 @@ import java.util.logging.Level;
 public final class MobMapMarkersPlugin extends JavaPlugin {
 
     static final String PROVIDER_KEY = "mobMapMarkers";
-    private static final String VERSION = "1.6.4";
+    private static final String VERSION = "1.6.5";
     private static final String LEGACY_CONFIG_FILE_NAME = "mobmapmarkers-config.json";
     private static final String CONFIG_FILE_NAME = "mobmapmarkers.json";
 
@@ -101,6 +103,7 @@ public final class MobMapMarkersPlugin extends JavaPlugin {
     @Override
     protected void setup() {
         getLogger().at(Level.INFO).log("[MobMapMarkers] Starting v" + VERSION);
+        ImageIO.setUseCache(false);
 
         Path dataDirectory = resolveDataDirectory();
         MobMapAssetPack.init(dataDirectory);

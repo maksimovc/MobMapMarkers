@@ -1,19 +1,14 @@
 # MobMapMarkers
 
-MobMapMarkers `1.6.4` is a Hytale server mod that adds per-player mob markers to the default world map, BetterMap radar, and optionally to FastMiniMap.
+MobMapMarkers `1.6.5` is a Hytale server mod that adds per-player mob markers to the default world map, BetterMap radar, and optionally to FastMiniMap.
 
-This release stabilizes mob marker identity for duplicate mob types, keeps the faster `50ms` scan cadence, and updates the release docs to match the current shipped runtime.
+This release keeps the phased icon pipeline but caps each delivery phase so large `mmm-*` asset bursts rebuild the client atlas in smaller chunks.
 
-## Release 1.6.4
+## Release 1.6.5
 
-- Fixes mob icons jumping between identical mobs on the big map by keeping marker IDs stable per entity
-- Keeps the faster `50ms` default scan interval and migrates older `1000ms` defaults forward automatically
-- Keeps the stable phased asset-delivery pipeline instead of relying on fixed delay timers
-- Resolves authored mob icons from `Assets.zip`, role references, template chains, descendant fallbacks, memories portraits, and model parent chains
-- Reads additional mob assets from archives located next to the installed `MobMapMarkers` jar or from explicitly configured archive paths
-- Keeps `/mobmap` lightweight through paging and lazy icon loading instead of rendering the entire catalog in one pass
-- Supports the default Hytale map, BetterMap radar/compass output, and optional FastMiniMap overlays through the same per-player visibility rules
-- Includes regression tests for template-chain resolution, descendant fallback, parent-model icon inheritance, and mod-archive portrait overrides
+- Limits new marker assets per delivery phase to reduce heavy client atlas bursts
+- Keeps the phased world-map and minimap icon-delivery pipeline intact
+- Updates release metadata, artifact names, and docs for `1.6.5`
 
 ## Features
 
@@ -87,7 +82,7 @@ If an older `plugins/MobMapMarkers` or `mods/MobMapMarkersData` folder already e
 
 ## Asset resolution
 
-Version `1.6.4` resolves mob icons from the following sources, in order of availability:
+Version `1.6.5` resolves mob icons from the following sources, in order of availability:
 
 - The nearest valid `Assets.zip` discovered from the runtime or from the explicit `hytale.assets_zip` system property or `HYTALE_ASSETS_ZIP` environment variable
 - Additional mod archives placed next to the installed `MobMapMarkers` jar
@@ -97,7 +92,7 @@ The resolver follows authored asset data instead of matching png names directly.
 
 ## Installation
 
-1. Copy `MobMapMarkers-1.6.4.jar` to `UserData/Saves/<YourWorld>/mods/`.
+1. Copy `MobMapMarkers-1.6.5.jar` to `UserData/Saves/<YourWorld>/mods/`.
 2. Start the server.
 3. If `FastMiniMap.jar` is installed too, keep `showMobMarkersOnFastMiniMap` enabled to show mob dots on the minimap.
 4. If `BetterMap.jar` is installed too, enable `showMobMarkersOnCompass` or the matching per-mob compass filter to surface them on BetterMap radar.
@@ -112,17 +107,17 @@ cd MobMapMarkers
 Output:
 
 ```text
-build/libs/MobMapMarkers-1.6.4.jar
+build/libs/MobMapMarkers-1.6.5.jar
 ```
 
 Notes:
 
-- The build references `../FastMiniMap/build/libs/FastMiniMap-1.0.0.jar` as a `compileOnly` dependency; build FastMiniMap first.
+- The build references `../FastMiniMap/build/libs/FastMiniMap-*.jar` as an optional `compileOnly` dependency; build FastMiniMap first.
 - If the FastMiniMap jar is absent, the build still succeeds — the FastMiniMap integration is detected at runtime.
 
 ## Validation
 
-The `1.6.4` codebase is currently validated with the included JUnit suite in `src/test/java`, including resolver coverage for template chains, descendant fallback, parent-model inheritance, mod override precedence, and the current build pipeline.
+The `1.6.5` codebase is currently validated with the included JUnit suite in `src/test/java`, including resolver coverage for template chains, descendant fallback, parent-model inheritance, mod override precedence, and the current build pipeline.
 
 ## Requirements
 

@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "dev.thenexusgates"
-version = "1.6.4"
+version = "1.6.5"
 description = "Mob markers for the Hytale world map, BetterMap radar, and optional FastMiniMap overlays."
 
 val fastMiniMapJarDir = layout.projectDirectory.dir("../FastMiniMap/build/libs").asFile

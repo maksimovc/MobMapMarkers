@@ -101,7 +101,7 @@ public final class MobMarkerProvider implements WorldMapManager.MarkerProvider {
                         snapshot.nameTranslationKey(),
                         snapshot.displayName(),
                         viewerLanguage);
-                String markerImage = MobMapAssetPack.ensureMobIcon(
+                String markerImage = MobMapAssetPack.ensureMobIconAsync(
                         snapshot.roleName(),
                         localizedDisplayName,
                         MobNameLocalization.buildAssetLocaleKey(snapshot.nameTranslationKey(), viewerLanguage, localizedDisplayName),

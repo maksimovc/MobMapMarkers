@@ -110,7 +110,7 @@ public final class BetterMapCompatProvider implements WorldMapManager.MarkerProv
                         snapshot.nameTranslationKey(),
                         snapshot.displayName(),
                         viewerLanguage);
-                String markerImage = MobMapAssetPack.ensureMobIcon(
+                String markerImage = MobMapAssetPack.ensureMobIconAsync(
                         snapshot.roleName(),
                         localizedDisplayName,
                         MobNameLocalization.buildAssetLocaleKey(

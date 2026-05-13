@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.6.5 - 2026-05-13
+
+Simple summary of changes since the previous `1.6.4` repo state.
+
+### Highlights
+
+- Limited new map-marker asset deliveries per rebuild phase to keep client atlas bursts smaller.
+- Kept the phased icon-delivery pipeline while smoothing heavy `mmm-*` asset waves.
+- Updated release docs, config examples, and artifact references for `1.6.5`.
+
+### Configuration and operations
+
+- Active artifact name: `MobMapMarkers-1.6.5.jar`
+- Config schema version: `3`
+- Config path: `UserData/Saves/<World>/mods/thenexusgates_MobMapMarkers/config/mobmapmarkers.json`
+- Supported server baseline: `2026.03.26-89796e57b`
+- Java requirement: `25`
+
+### Validation
+
+- `gradlew.bat build`
+
 ## 1.6.4 - 2026-05-04
 
 Simple summary of changes since the previous `1.6.3` repo state.

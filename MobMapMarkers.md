@@ -1,10 +1,10 @@
 # MobMapMarkers
 
-Release target: `1.6.4`
+Release target: `1.6.5`
 
 MobMapMarkers shows nearby mobs as icon markers on the world map (M key), BetterMap radar, and optionally on the minimap when [FastMiniMap](https://www.curseforge.com/hytale/mods/fast-mini-map) is installed.
 
-This document is the short-form release sheet for version `1.6.4`.
+This document is the short-form release sheet for version `1.6.5`.
 
 ## Features
 
@@ -17,19 +17,15 @@ This document is the short-form release sheet for version `1.6.4`.
 - Paginated `/mobmap` filter UI with lazy icon loading
 - **Minimap overlay** — mob icons appear on the minimap when FastMiniMap is installed and enabled in config
 
-## 1.6.4 highlights
+## 1.6.5 highlights
 
-- Stable per-entity marker IDs so same-type mobs do not steal each other's map icon
-- Faster `50ms` default scan interval with config migration for older installs
-- Stable phased asset delivery with no fixed-delay timer dependency
-- Icon resolution through `Assets.zip` plus authored role/model inheritance
-- Additional mod archive lookup from co-located archives or explicit archive overrides
-- BetterMap radar support and optional FastMiniMap compatibility through the same per-player filters
-- Packaged regression tests for the icon resolver
+- Smaller per-phase marker asset bursts to reduce client atlas rebuild spikes
+- Same phased delivery pipeline, but with tighter batching for `mmm-*` assets
+- Updated release metadata and packaged artifact references for `1.6.5`
 
 ## Installation
 
-1. Copy `MobMapMarkers-1.6.4.jar` to `UserData/Saves/<World>/mods/`
+1. Copy `MobMapMarkers-1.6.5.jar` to `UserData/Saves/<World>/mods/`
 2. Start the server — config is auto-generated on first run
 
 ## Configuration
@@ -83,7 +79,7 @@ Config path: `UserData/Saves/<World>/mods/thenexusgates_MobMapMarkers/config/mob
 - Reads mod archives next to the installed `MobMapMarkers` jar
 - Accepts extra mod archive paths through `hytale.mod_archives` / `HYTALE_MOD_ARCHIVES`
 
-Artifact: `build/libs/MobMapMarkers-1.6.4.jar`
+Artifact: `build/libs/MobMapMarkers-1.6.5.jar`
 
 ## Recommended mods
 
